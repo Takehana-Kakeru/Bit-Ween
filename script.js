@@ -20,7 +20,248 @@
 		skillFilters: new Set(),
 		calView: 'month',
 		reactionsToday: { like: 18, thanks: 9, comment: 24 },
+		favoriteEmployees: new Set(),
+		heatBonus: 0,
+		matchHistory: [],
+		serenQueue: [],
+		serenCursor: 0,
+		flowMode: false,
 	};
+
+	function enterFlowMode() {
+		state.flowMode = true;
+		document.body.classList.add('mode-flow');
+		setRoute('members');
+		setSubView('members', 'match');
+		renderMatches();
+		window.setTimeout(() => focusWithSubview('matchPanel'), 60);
+	}
+
+	function exitFlowMode() {
+		state.flowMode = false;
+		document.body.classList.remove('mode-flow');
+	}
+
+	const STORAGE_KEYS = {
+		favoriteEmployees: 'bitween_favorite_employees_v1',
+		myProfile: 'bitween_my_profile_v1',
+		heatBonus: 'bitween_heat_bonus_v1',
+		matchHistory: 'bitween_match_history_v1',
+	};
+
+	function loadMatchHistory() {
+		const raw = window.localStorage.getItem(STORAGE_KEYS.matchHistory);
+		const list = safeJsonParse(raw || '[]', []);
+		state.matchHistory = Array.isArray(list) ? list : [];
+	}
+
+	function saveMatchHistory() {
+		window.localStorage.setItem(STORAGE_KEYS.matchHistory, JSON.stringify(state.matchHistory || []));
+	}
+
+	function upsertMatchHistory(entry) {
+		if (!entry || !entry.employeeId) return;
+		const next = Array.isArray(state.matchHistory) ? [...state.matchHistory] : [];
+		const idx = next.findIndex((x) => x && x.employeeId === entry.employeeId);
+		if (idx >= 0) next.splice(idx, 1);
+		next.unshift(entry);
+		state.matchHistory = next.slice(0, 24);
+		saveMatchHistory();
+	}
+
+	function shuffleInPlace(arr) {
+		for (let i = arr.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[arr[i], arr[j]] = [arr[j], arr[i]];
+		}
+		return arr;
+	}
+
+	function buildSerenQueue() {
+		const meId = employees[0]?.id;
+		const pool = employees.filter((e) => e && e.id && e.id !== meId);
+		const fragments = [];
+
+		pool.forEach((e) => {
+			const p = e.profile || {};
+			const tags = Array.isArray(e.skills) ? e.skills.slice(0, 2) : [];
+			const hobbies = Array.isArray(p.hobbies) ? p.hobbies.filter(Boolean) : [];
+			if (hobbies.length) {
+				fragments.push({
+					employeeId: e.id,
+					tags,
+					text: `趣味: ${hobbies.slice(0, 3).join(' / ')}`,
+					kind: 'hobbies',
+				});
+			}
+			if (p.hometown) {
+				fragments.push({ employeeId: e.id, tags, text: `出身: ${p.hometown}`, kind: 'hometown' });
+			}
+			if (p.localTalk) {
+				fragments.push({ employeeId: e.id, tags, text: `地元ネタ: ${p.localTalk}`, kind: 'localTalk' });
+			}
+			if (p.smallTalk) {
+				fragments.push({ employeeId: e.id, tags, text: `世間話: ${p.smallTalk}`, kind: 'smallTalk' });
+			}
+			if (!hobbies.length && !p.hometown && !p.localTalk && !p.smallTalk && tags.length) {
+				fragments.push({ employeeId: e.id, tags, text: `最近気になること: ${tags.join(' / ')}`, kind: 'skills' });
+			}
+		});
+
+		shuffleInPlace(fragments);
+		return fragments;
+	}
+
+	function ensureSerenQueue() {
+		if (!Array.isArray(state.serenQueue) || state.serenQueue.length === 0) {
+			state.serenQueue = buildSerenQueue();
+			state.serenCursor = 0;
+		}
+		if (state.serenCursor >= state.serenQueue.length) {
+			state.serenQueue = buildSerenQueue();
+			state.serenCursor = 0;
+		}
+	}
+
+	function currentSerenFragment() {
+		ensureSerenQueue();
+		return state.serenQueue[state.serenCursor] || null;
+	}
+
+	function renderSerendipityCard() {
+		const root = document.getElementById('serendipityFlow');
+		if (!root) return;
+		if ((state.subviews && state.subviews.members) !== 'match') return;
+
+		const frag = currentSerenFragment();
+		if (!frag) {
+			root.innerHTML = '<div class="empty" style="color: rgba(255,255,255,0.86)">カケラが見つかりません。</div>';
+			return;
+		}
+
+		const rot = (Math.random() * 6 - 3).toFixed(2);
+		const drift = (Math.random() * 24 - 12).toFixed(2);
+		const tagHTML = (frag.tags || []).map((t) => `<span class="seren-tag">${escapeHtml(t)}</span>`).join('');
+		root.innerHTML = `
+			<div class="seren-card single in" style="--rot:${rot}deg; --drift:${drift}px; --x:50%" data-seren-card>
+				<div class="seren-tags" aria-label="ヒント">${tagHTML}</div>
+				<div class="seren-text">${escapeHtml(frag.text)}</div>
+				<button class="seren-burn" type="button" data-seren-burn="1" data-seren-emp="${escapeHtml(frag.employeeId)}" data-seren-text="${escapeHtml(frag.text)}" aria-label="燃やす">🔥</button>
+			</div>
+		`.trim();
+
+		const card = root.querySelector('.seren-card');
+		if (card) window.setTimeout(() => card.classList.remove('in'), 260);
+	}
+
+	function nextSerendipityCard() {
+		state.serenCursor = (state.serenCursor || 0) + 1;
+		renderSerendipityCard();
+	}
+
+	function renderMatchHistory() {
+		const root = document.getElementById('matchHistory');
+		if (!root) return;
+		if ((state.subviews && state.subviews.members) !== 'history') return;
+
+		const list = Array.isArray(state.matchHistory) ? state.matchHistory : [];
+		const cards = list
+			.map((h) => {
+				const e = employees.find((x) => x && x.id === h.employeeId);
+				if (!e) return '';
+				const temp = computePersonTemp(e);
+				const last = new Date(e.last);
+				const lastTxt = `${last.getMonth() + 1}/${last.getDate()} ${String(last.getHours()).padStart(2, '0')}:${String(last.getMinutes()).padStart(2, '0')}`;
+				const skillBadges = (e.skills || []).map((s) => `<span class="tag">${escapeHtml(s)}</span>`).join('');
+				const note = h.text ? `<div class="emp-note">ハートしたカケラ: ${escapeHtml(h.text)}</div>` : '';
+
+				return `
+					<article class="emp" aria-label="開示カード">
+						<div class="emp-top">
+							<div class="avatar sm" aria-hidden="true"></div>
+							<div>
+								<div class="emp-name">${escapeHtml(e.name)} <span class="emp-reveal">開示</span></div>
+								<div class="emp-meta">${escapeHtml(e.dept)} ・ 入社 ${escapeHtml(e.join)} ・ 最終アクセス ${escapeHtml(lastTxt)}</div>
+							</div>
+						</div>
+						<div class="emp-mid">
+							<div class="emp-kpis">
+								<div class="kpi"><span class="kpi-label">網羅率</span><span class="kpi-val"><span class="pill ${e.coverage >= 75 ? 'hot' : e.coverage >= 60 ? 'warm' : 'cool'}">${e.coverage}%</span></span></div>
+								<div class="kpi"><span class="kpi-label">温度</span><span class="kpi-val"><span class="thermo thermo-sm" style="--p:${temp}" aria-hidden="true"><span class="thermo-fluid" aria-hidden="true"></span></span><span class="kpi-thermo-num">${temp}%</span></span></div>
+							</div>
+							<div class="tags" aria-label="スキル">${skillBadges}</div>
+							${note}
+						</div>
+					</article>
+				`.trim();
+			})
+			.filter(Boolean)
+			.join('');
+
+		root.innerHTML = cards || '<div class="empty">まだ履歴がありません。マッチングでハートしてみてください。</div>';
+	}
+
+	function loadHeatBonus() {
+		const v = safeJsonParse(window.localStorage.getItem(STORAGE_KEYS.heatBonus) || '0', 0);
+		state.heatBonus = Number.isFinite(Number(v)) ? Number(v) : 0;
+	}
+
+	function saveHeatBonus() {
+		window.localStorage.setItem(STORAGE_KEYS.heatBonus, JSON.stringify(Math.round(state.heatBonus || 0)));
+	}
+
+	function bumpHeatBonus(delta) {
+		state.heatBonus = clamp((state.heatBonus || 0) + delta, 0, 60);
+		saveHeatBonus();
+		pulseHeatGauge();
+		pulseSerenHeat();
+		renderStats();
+	}
+
+	function pulseHeatGauge() {
+		const panel = document.querySelector('.heat-panel');
+		if (!panel) return;
+		panel.classList.remove('heat-pulse');
+		// reflow
+		void panel.offsetWidth;
+		panel.classList.add('heat-pulse');
+		window.setTimeout(() => panel.classList.remove('heat-pulse'), 520);
+	}
+
+	function pulseSerenHeat() {
+		const box = document.querySelector('.seren-heat');
+		if (!box) return;
+		box.classList.remove('heat-pulse');
+		// reflow
+		void box.offsetWidth;
+		box.classList.add('heat-pulse');
+		window.setTimeout(() => box.classList.remove('heat-pulse'), 520);
+	}
+
+	function safeJsonParse(text, fallback) {
+		try {
+			return JSON.parse(text);
+		} catch {
+			return fallback;
+		}
+	}
+
+	function loadFavoriteEmployees() {
+		const raw = window.localStorage.getItem(STORAGE_KEYS.favoriteEmployees);
+		const ids = safeJsonParse(raw || '[]', []);
+		state.favoriteEmployees = new Set(Array.isArray(ids) ? ids : []);
+	}
+
+	function saveFavoriteEmployees() {
+		window.localStorage.setItem(STORAGE_KEYS.favoriteEmployees, JSON.stringify(Array.from(state.favoriteEmployees)));
+	}
+
+	function toggleFavoriteEmployee(id) {
+		if (!id) return;
+		if (state.favoriteEmployees.has(id)) state.favoriteEmployees.delete(id);
+		else state.favoriteEmployees.add(id);
+		saveFavoriteEmployees();
+	}
 
 	const skills = [
 		'動画編集',
@@ -48,6 +289,12 @@
 			skills: ['ライティング', 'SNS運用'],
 			skillCodes: ['SK-WRITE', 'SK-SNS'],
 			articleType: 'text',
+			profile: {
+				hobbies: ['カフェ巡り', '散歩'],
+				hometown: '神奈川',
+				localTalk: '地元のパン屋がアツい',
+				smallTalk: '最近のおすすめコーヒー教えてください',
+			},
 			wp: { userId: 101, profilePostId: 2101 },
 		},
 		{
@@ -63,6 +310,12 @@
 			skills: ['デザイン', 'ノーコード'],
 			skillCodes: ['SK-DESIGN', 'SK-NOCODE'],
 			articleType: 'image',
+			profile: {
+				hobbies: ['料理', 'サウナ'],
+				hometown: '福岡',
+				localTalk: '屋台トーク歓迎',
+				smallTalk: '最近見た映画で当たりあった？',
+			},
 			wp: { userId: 102, profilePostId: 2102 },
 		},
 		{
@@ -78,6 +331,12 @@
 			skills: ['マーケティング', 'コーディング'],
 			skillCodes: ['SK-MKT', 'SK-CODE'],
 			articleType: 'video',
+			profile: {
+				hobbies: ['筋トレ', 'ゲーム'],
+				hometown: '北海道',
+				localTalk: '冬の過ごし方あるある',
+				smallTalk: '作業BGMのおすすめあります？',
+			},
 			wp: { userId: 103, profilePostId: 2103 },
 		},
 		{
@@ -515,14 +774,79 @@
 	}
 
 	function setRoute(route) {
-		state.route = route;
+		const r = normalizeRoute(route);
+		state.route = r;
+		syncActiveGlobalNav(r);
 		$$('.route').forEach((sec) => {
-			const isActive = sec.dataset.route === route;
+			const isActive = sec.dataset.route === r;
 			sec.hidden = !isActive;
 		});
+		ensureDefaultSubView(r);
 		document.documentElement.style.scrollBehavior = 'smooth';
 		window.scrollTo({ top: 0 });
 		window.setTimeout(() => (document.documentElement.style.scrollBehavior = ''), 10);
+	}
+
+	function syncActiveGlobalNav(route) {
+		const navRoute = route === 'article' ? 'content' : route;
+		$$('.site-header [data-route]').forEach((el) => el.removeAttribute('aria-current'));
+		$$(`.site-header [data-route="${navRoute}"]`).forEach((el) => el.setAttribute('aria-current', 'page'));
+	}
+
+	function normalizeRoute(route) {
+		if (!route) return 'home';
+		const map = {
+			search: 'members',
+		};
+		return map[route] || route;
+	}
+
+	function setSubView(route, subview) {
+		const r = normalizeRoute(route);
+		const sec = document.querySelector(`.route[data-route="${r}"]`);
+		if (!sec) return;
+		const views = sec.querySelectorAll('.subview[data-subview]');
+		if (!views.length) return;
+
+		state.subviews = state.subviews || {};
+		state.subviews[r] = subview;
+
+		views.forEach((v) => {
+			v.hidden = v.dataset.subview !== subview;
+		});
+
+		sec.querySelectorAll(`.subtab[data-subtab="${r}"]`).forEach((btn) => {
+			const v = btn.getAttribute('data-subview');
+			btn.setAttribute('aria-pressed', v === subview ? 'true' : 'false');
+		});
+
+		if (r === 'members') {
+			renderMatches();
+		}
+	}
+
+	function ensureDefaultSubView(route) {
+		const r = normalizeRoute(route);
+		const sec = document.querySelector(`.route[data-route="${r}"]`);
+		if (!sec) return;
+		const any = sec.querySelector('.subview[data-subview]');
+		if (!any) return;
+
+		const activeBtn = sec.querySelector(`.subtab[data-subtab="${r}"][aria-pressed="true"]`);
+		const defaultView = activeBtn?.getAttribute('data-subview') || any.dataset.subview;
+		const desired = (state.subviews && state.subviews[r]) || defaultView;
+		setSubView(r, desired);
+	}
+
+	function focusWithSubview(focusId) {
+		const target = focusId ? document.getElementById(focusId) : null;
+		if (!target) return;
+		const sec = target.closest('.route[data-route]');
+		const sub = target.closest('.subview[data-subview]');
+		if (sec && sub) {
+			setSubView(sec.dataset.route, sub.dataset.subview);
+		}
+		target.scrollIntoView({ block: 'start', behavior: 'smooth' });
 	}
 
 	function buildTagOptions() {
@@ -541,12 +865,13 @@
 		list.innerHTML = '';
 		const sorted = [...articles].sort((a, b) => computeTemp(b) - computeTemp(a)).slice(0, 3);
 		sorted.forEach((a) => {
+			const temp = computeTemp(a);
 			const li = document.createElement('li');
 			li.className = 'rank-item';
 			li.innerHTML = `
 				<button class="rank-link" type="button" data-open-article="${a.id}">
 					<span class="rank-title">${a.title}</span>
-					<span class="rank-meta">温度スコア ${computeTemp(a)}%</span>
+					<span class="rank-meta"><span class="pill heat" style="--p:${temp}">温度 ${temp}%</span><span>話題の入口</span></span>
 				</button>
 			`;
 			list.appendChild(li);
@@ -567,7 +892,7 @@
 					</th>
 					<td class="num">${a.views}%</td>
 					<td class="num">${a.coverage}%</td>
-					<td class="num"><span class="pill ${a.temp >= 70 ? 'hot' : a.temp >= 55 ? 'warm' : 'cool'}">${a.temp}%</span></td>
+					<td class="num"><span class="pill heat" style="--p:${a.temp}">${a.temp}%</span></td>
 				`;
 				tbody.appendChild(tr);
 			});
@@ -576,7 +901,6 @@
 	function articleCardHTML(a) {
 		const temp = computeTemp(a);
 		const thumb = a.type === 'video' ? 'VIDEO' : a.type === 'image' ? 'IMAGE' : 'TEXT';
-		const pill = temp >= 70 ? 'hot' : temp >= 55 ? 'warm' : 'cool';
 		const tagBadges = a.tags.map((t) => `<span class="tag">${t}</span>`).join('');
 		const dummyBadge = a.dummy || String(a.id).startsWith('DUMMY_') ? `<span class="dummy-badge" aria-label="DUMMYデータ">DUMMY</span>` : '';
 
@@ -591,7 +915,7 @@
 					<div class="meta">
 						<time datetime="${a.date}">${formatDate(a.date)}</time>
 						<span class="dot" aria-hidden="true">•</span>
-						<span class="pill ${pill}">温度スコア ${temp}%</span>
+						<span class="pill heat" style="--p:${temp}" title="温度スコア（関心の指標）">温度 ${temp}%</span>
 					</div>
 					<h3 class="card-title">${a.title}</h3>
 					<p class="card-excerpt">${a.excerpt}</p>
@@ -657,10 +981,10 @@
 		const temp = computeTemp(a);
 		$('#detailViews').textContent = `${a.views}%`;
 		$('#detailCoverage').textContent = `${a.coverage}%`;
-		$('#detailTemp').textContent = `${temp}%`;
-		$('#detailTemp').classList.toggle('temp-hot', temp >= 70);
-		$('#detailTemp').classList.toggle('temp-warm', temp >= 55 && temp < 70);
-		$('#detailTemp').classList.toggle('temp-cool', temp < 55);
+		const tempEl = $('#detailTemp');
+		tempEl.textContent = `${temp}%`;
+		tempEl.className = 'pill heat';
+		tempEl.style.setProperty('--p', String(temp));
 
 		// reset reactions UI
 		$('#likeCount').textContent = String(a.reactions.like);
@@ -721,11 +1045,21 @@
 
 	function employeeCard(e) {
 		const hot = e.coverage >= 75 ? 'hot' : e.coverage >= 60 ? 'warm' : 'cool';
+		const temp = computePersonTemp(e);
 		const skillBadges = e.skills.map((s) => `<span class="tag">${s}</span>`).join('');
 		const last = new Date(e.last);
 		const lastTxt = `${last.getMonth() + 1}/${last.getDate()} ${String(last.getHours()).padStart(2, '0')}:${String(last.getMinutes()).padStart(2, '0')}`;
 		const type = e.articleType.toUpperCase();
 		const dummyTag = e.dummy || String(e.id).startsWith('DUMMY_') ? `<span class="tag dummy">DUMMY</span>` : '';
+		const isFav = state.favoriteEmployees.has(e.id);
+		const profile = e.profile || {};
+		const hobbies = Array.isArray(profile.hobbies) ? profile.hobbies.filter(Boolean) : [];
+		const noteParts = [];
+		if (hobbies.length) noteParts.push(`趣味: ${hobbies.slice(0, 2).join(' / ')}`);
+		if (profile.hometown) noteParts.push(`出身: ${profile.hometown}`);
+		if (profile.localTalk) noteParts.push(`地元ネタ: ${profile.localTalk}`);
+		if (profile.smallTalk) noteParts.push(`世間話: ${profile.smallTalk}`);
+		const note = noteParts.length ? `<div class="emp-note">${escapeHtml(noteParts.slice(0, 2).join(' ・ '))}</div>` : '';
 
 		return `
 			<article class="emp" aria-label="社員カード">
@@ -735,13 +1069,16 @@
 						<div class="emp-name">${e.name} ${dummyTag}</div>
 						<div class="emp-meta">${e.dept} ・ 入社 ${e.join} ・ 最終アクセス ${lastTxt}</div>
 					</div>
+					<button class="fav-btn" type="button" data-fav-emp="${escapeHtml(e.id)}" aria-pressed="${isFav ? 'true' : 'false'}" aria-label="${isFav ? 'お気に入り解除' : 'お気に入りに追加'}">${isFav ? '★' : '☆'} お気に入り</button>
 				</div>
 				<div class="emp-mid">
 					<div class="emp-kpis">
 						<div class="kpi"><span class="kpi-label">網羅率</span><span class="kpi-val"><span class="pill ${hot}">${e.coverage}%</span></span></div>
+						<div class="kpi"><span class="kpi-label">温度</span><span class="kpi-val"><span class="thermo thermo-sm" style="--p:${temp}" aria-hidden="true"><span class="thermo-fluid" aria-hidden="true"></span></span><span class="kpi-thermo-num">${temp}%</span></span></div>
 						<div class="kpi"><span class="kpi-label">記事タイプ</span><span class="kpi-val">${type}</span></div>
 					</div>
 					<div class="tags" aria-label="スキル">${skillBadges}</div>
+					${note}
 				</div>
 				<div class="emp-foot">
 					<button class="btn btn-ghost" type="button" data-mention="${e.name}">コメントで@${e.name}をメンション</button>
@@ -756,6 +1093,7 @@
 		const type = $('#empArticleType').value;
 		const limit = Number($('#empLimit').value);
 		const dept = $('#empDept').value;
+		const favOnly = Boolean($('#empFavOnly')?.checked);
 
 		let list = employees.filter((e) => {
 			const inQ =
@@ -766,62 +1104,34 @@
 			const inDept = !dept || e.dept === dept;
 			const inType = !type || e.articleType === type;
 			const inSkills = state.skillFilters.size === 0 || Array.from(state.skillFilters).every((s) => e.skills.includes(s));
-			return inQ && inDept && inType && inSkills;
+			const inFav = !favOnly || state.favoriteEmployees.has(e.id);
+			return inQ && inDept && inType && inSkills && inFav;
 		});
 
 		if (sort === 'join') list.sort((a, b) => a.join.localeCompare(b.join));
 		if (sort === 'last') list.sort((a, b) => b.last.localeCompare(a.last));
 		if (sort === 'coverage') list.sort((a, b) => b.coverage - a.coverage);
+		if (sort === 'temp') list.sort((a, b) => computePersonTemp(b) - computePersonTemp(a));
+		if (sort === 'fav') {
+			list.sort((a, b) => {
+				const af = state.favoriteEmployees.has(a.id) ? 1 : 0;
+				const bf = state.favoriteEmployees.has(b.id) ? 1 : 0;
+				if (bf !== af) return bf - af;
+				return computePersonTemp(b) - computePersonTemp(a);
+			});
+		}
 
 		list = list.slice(0, limit);
 		const root = $('#employeeList');
 		root.innerHTML = list.map(employeeCard).join('') || `<div class="empty">条件に一致する社員がいません。</div>`;
+
+		// Members内のmatch/historyは別DOMなので必要な時だけ更新
 		renderMatches();
 	}
 
 	function renderMatches() {
-		const list = $('#matchList');
-		if (!list) return;
-
-		const selected = Array.from(state.skillFilters);
-		const candidates = [...employees]
-			.map((e) => {
-				const overlap = selected.filter((s) => e.skills.includes(s));
-				return {
-					e,
-					overlap,
-					overlapScore: overlap.length,
-					temp: computePersonTemp(e),
-				};
-			})
-			.sort((a, b) => {
-				if (b.overlapScore !== a.overlapScore) return b.overlapScore - a.overlapScore;
-				return b.temp - a.temp;
-			});
-
-		const picked = (selected.length ? candidates.filter((c) => c.overlapScore > 0) : candidates).slice(0, 3);
-		const items = picked.length ? picked : candidates.slice(0, 3);
-
-		list.innerHTML = items
-			.map(({ e, overlap, overlapScore, temp }) => {
-				const metaParts = [];
-				if (selected.length) {
-					metaParts.push(overlapScore ? `共通スキル: ${overlap.join(' / ')}` : '共通スキル: まだなし');
-				} else {
-					metaParts.push('スキルを選ぶと精度が上がります');
-				}
-				metaParts.push(`温度スコア: ${temp}%`);
-
-				return `
-					<li class="rank-item">
-						<button class="rank-link" type="button" data-mention="${escapeHtml(e.name)}">
-							<span class="rank-title">${escapeHtml(e.dept)} ${escapeHtml(e.name)}</span>
-							<span class="rank-meta">${escapeHtml(metaParts.join(' ・ '))}</span>
-						</button>
-					</li>
-				`.trim();
-			})
-			.join('');
+		renderSerendipityCard();
+		renderMatchHistory();
 	}
 
 	function renderCalendar() {
@@ -926,15 +1236,47 @@
 		const coverage = Math.round(articles.reduce((sum, a) => sum + a.coverage, 0) / articles.length);
 		$('#statOrgTemp').textContent = `${orgTemp}`;
 		$('#statCoverage').textContent = `${coverage}`;
+
+		// デモ都合: 0%でも「50%くらいは溜まっている」状態から開始
+		const base = clamp(orgTemp, 0, 100);
+		const p = clamp(Math.max(50, base) + (state.heatBonus || 0), 0, 100);
+
+		const heatValue = document.getElementById('todayHeatValue');
+		const thermo = document.getElementById('todayThermo');
+		if (heatValue && thermo) {
+			heatValue.textContent = `温度 ${p}%`;
+			heatValue.style.setProperty('--p', String(p));
+			thermo.style.setProperty('--p', String(p));
+
+			const goal = p < 70 ? 70 : p < 85 ? 85 : 100;
+			const goalEl = document.getElementById('todayHeatGoal');
+			const toGoalEl = document.getElementById('todayHeatToGoal');
+			if (goalEl) goalEl.textContent = `次の目標: ${goal}%`;
+			if (toGoalEl) toGoalEl.textContent = goal === 100 ? '最終目標' : `あと ${Math.max(0, goal - p)}%`;
+		}
+
+		// Members > match の温度計も同期
+		const serenHeatValue = document.getElementById('serenHeatValue');
+		const serenThermo = document.getElementById('serenThermo');
+		if (serenHeatValue && serenThermo) {
+			serenHeatValue.textContent = `温度 ${p}%`;
+			serenHeatValue.style.setProperty('--p', String(p));
+			serenThermo.style.setProperty('--p', String(p));
+		}
 	}
 
 	function setupChart() {
+		const ctx = document.getElementById('orgTempChart');
+		if (!ctx) return;
+		const fallback = document.getElementById('chartFallback');
+		const bars = document.getElementById('fallbackBars');
+		if (!fallback || !bars) return;
+
 		const labels = articles.map((a) => (a.title.length > 12 ? a.title.slice(0, 12) + '…' : a.title));
 		const data = articles.map((a) => computeTemp(a));
 
 		if (!window.Chart) {
-			$('#chartFallback').hidden = false;
-			const bars = $('#fallbackBars');
+			fallback.hidden = false;
 			bars.innerHTML = data
 				.map((v, i) => {
 					return `
@@ -947,7 +1289,6 @@
 			return;
 		}
 
-		const ctx = $('#orgTempChart');
 		// eslint-disable-next-line no-new
 		new window.Chart(ctx, {
 			type: 'bar',
@@ -993,37 +1334,88 @@
 			$('#toggleMenu').setAttribute('aria-expanded', next ? 'true' : 'false');
 		});
 
-		$('#contactBtn').addEventListener('click', () => toast('CONTACT（デモ）: お問い合わせ導線を想定'));
-		$('#contactBtnMobile').addEventListener('click', () => {
-			toast('CONTACT（デモ）: お問い合わせ導線を想定');
-			closeMobile();
-		});
+		const heatBtn = document.getElementById('heatUpBtn');
+		if (heatBtn) {
+			heatBtn.addEventListener('click', () => {
+				enterFlowMode();
+			});
+		}
+		const heatBtnMobile = document.getElementById('heatUpBtnMobile');
+		if (heatBtnMobile) {
+			heatBtnMobile.addEventListener('click', () => {
+				enterFlowMode();
+				closeMobile();
+			});
+		}
 
 		document.addEventListener('click', (e) => {
 			const t = e.target;
 			if (!(t instanceof HTMLElement)) return;
-			const routeEl = t.closest('[data-route]');
-			const route = routeEl?.getAttribute('data-route');
-			const focusId = routeEl?.getAttribute('data-focus');
-			if (route) {
+
+			const serenBtn = t.closest('[data-seren-burn]');
+			if (serenBtn instanceof HTMLButtonElement) {
 				e.preventDefault();
+				if (serenBtn.disabled) return;
+				serenBtn.disabled = true;
+				serenBtn.classList.add('burned');
+				const empId = serenBtn.getAttribute('data-seren-emp') || '';
+				const text = serenBtn.getAttribute('data-seren-text') || '';
+				const card = serenBtn.closest('[data-seren-card]');
+				if (card) card.classList.add('burn');
+
+				upsertMatchHistory({ employeeId: empId, text, at: Date.now() });
+				bumpHeatBonus(5);
+				toast('燃えた！ 温度が上昇しました（+5% / デモ）');
+				renderMatchHistory();
+				window.setTimeout(() => {
+					if (card && card.parentElement) card.parentElement.innerHTML = '';
+					nextSerendipityCard();
+				}, 520);
+				return;
+			}
+
+			const favId = t.closest('[data-fav-emp]')?.getAttribute('data-fav-emp');
+			if (favId) {
+				e.preventDefault();
+				toggleFavoriteEmployee(favId);
+				renderEmployees();
+				renderMatches();
+				return;
+			}
+
+			const subtabEl = t.closest('[data-subtab]');
+			if (subtabEl) {
+				e.preventDefault();
+				exitFlowMode();
+				const r = subtabEl.getAttribute('data-subtab');
+				const v = subtabEl.getAttribute('data-subview');
+				if (r && v) setSubView(r, v);
+				return;
+			}
+
+			const routeEl = t.closest('a[data-route], button[data-route]');
+			const routeAttr = routeEl?.getAttribute('data-route');
+			const focusId = routeEl?.getAttribute('data-focus');
+			if (routeAttr) {
+				const route = normalizeRoute(routeAttr);
+				e.preventDefault();
+				exitFlowMode();
 				if (route === 'article') {
 					openArticle(state.selectedArticleId || articles[0].id);
 					closeMobile();
 					if (focusId) {
 						window.setTimeout(() => {
-							const target = document.getElementById(focusId);
-							if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+							focusWithSubview(focusId);
 						}, 60);
 					}
 					return;
 				}
 				setRoute(route);
+				ensureDefaultSubView(route);
 				closeMobile();
 				if (focusId) {
 					window.setTimeout(() => {
-						const target = document.getElementById(focusId);
-						if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+						focusWithSubview(focusId);
 					}, 60);
 				}
 				return;
@@ -1032,6 +1424,7 @@
 			const openId = t.closest('[data-open-article]')?.getAttribute('data-open-article');
 			if (openId) {
 				e.preventDefault();
+				exitFlowMode();
 				openArticle(openId);
 				return;
 			}
@@ -1039,6 +1432,7 @@
 			const mention = t.closest('[data-mention]')?.getAttribute('data-mention');
 			if (mention) {
 				e.preventDefault();
+				exitFlowMode();
 				// 記事詳細に遷移し、コメント欄にメンションを入れる
 				openArticle(state.selectedArticleId || articles[0].id);
 				const input = $('#commentInput');
@@ -1202,6 +1596,31 @@
 			$('#empArticleType').addEventListener(evt, renderEmployees);
 			$('#empLimit').addEventListener(evt, renderEmployees);
 			$('#empDept').addEventListener(evt, renderEmployees);
+			$('#empFavOnly')?.addEventListener(evt, renderEmployees);
+		});
+	}
+
+	function setupMyProfileForm() {
+		const form = document.getElementById('myProfileForm');
+		if (!(form instanceof HTMLFormElement)) return;
+		form.addEventListener('submit', (e) => {
+			e.preventDefault();
+			const hobbiesRaw = (document.getElementById('myHobbies')?.value || '').trim();
+			const hobbies = hobbiesRaw
+				.split(/[,、/\n]/g)
+				.map((s) => s.trim())
+				.filter(Boolean)
+				.slice(0, 8);
+			const hometown = (document.getElementById('myHometown')?.value || '').trim();
+			const localTalk = (document.getElementById('myLocalTalk')?.value || '').trim();
+			const smallTalk = (document.getElementById('mySmallTalk')?.value || '').trim();
+
+			const profile = { hobbies, hometown, localTalk, smallTalk };
+			window.localStorage.setItem(STORAGE_KEYS.myProfile, JSON.stringify(profile));
+			if (employees[0]) employees[0].profile = profile;
+			toast('プロフィールを保存しました');
+			renderMyPage();
+			renderEmployees();
 		});
 	}
 
@@ -1217,6 +1636,9 @@
 	}
 
 	function init() {
+		loadFavoriteEmployees();
+		loadHeatBonus();
+		loadMatchHistory();
 		buildTagOptions();
 		renderStats();
 		renderPopular();
@@ -1226,6 +1648,7 @@
 		renderEmployees();
 		renderAlerts();
 		renderCalendar();
+		renderMyPage();
 
 		setupNav();
 		setupArticleFilters();
@@ -1233,12 +1656,56 @@
 		setupComments();
 		setupEmployeeFilters();
 		setupCalendarControls();
+		setupMyProfileForm();
 
 		// 初期表示記事（温度スコアのデモを伝えるため）
 		state.selectedArticleId = articles[0].id;
+		ensureDefaultSubView('members');
+		ensureDefaultSubView('mypage');
 
 		// Chart.js は defer 読み込みなので、ロード完了を待って初期化
 		window.addEventListener('load', setupChart, { once: true });
+	}
+
+	function renderMyPage() {
+		const nameEl = document.getElementById('myName');
+		if (!nameEl) return;
+		const deptEl = document.getElementById('myDept');
+		const tagsEl = document.getElementById('myTags');
+		const engagementEl = document.getElementById('myEngagement');
+		const weeklyEl = document.getElementById('myWeeklyReactions');
+		const thanksEl = document.getElementById('myThanksList');
+
+		const me = employees[0];
+		nameEl.textContent = me ? me.name : '—';
+		if (deptEl) deptEl.textContent = me ? me.dept : '—';
+		if (tagsEl) tagsEl.textContent = me ? me.skills.slice(0, 3).join(' / ') : '—';
+
+		const saved = safeJsonParse(window.localStorage.getItem(STORAGE_KEYS.myProfile) || 'null', null);
+		if (saved && me) me.profile = { ...(me.profile || {}), ...saved };
+		const p = (me && me.profile) || saved || {};
+		const hobbiesEl = document.getElementById('myHobbies');
+		const hometownEl = document.getElementById('myHometown');
+		const localEl = document.getElementById('myLocalTalk');
+		const smallEl = document.getElementById('mySmallTalk');
+		if (hobbiesEl && !hobbiesEl.value) hobbiesEl.value = Array.isArray(p.hobbies) ? p.hobbies.join(', ') : '';
+		if (hometownEl && !hometownEl.value) hometownEl.value = p.hometown || '';
+		if (localEl && !localEl.value) localEl.value = p.localTalk || '';
+		if (smallEl && !smallEl.value) smallEl.value = p.smallTalk || '';
+
+		if (me && engagementEl) engagementEl.textContent = String(computePersonTemp(me));
+		if (weeklyEl) weeklyEl.textContent = String(12 + (me ? (me.coverage % 8) : 0));
+
+		if (thanksEl) {
+			const sample = [
+				{ who: '人事部 田中さん', what: '趣味投稿のコメント' },
+				{ who: 'IT営業部 佐藤さん', what: '記事共有への反応' },
+				{ who: '教育 井上さん', what: '新入社員フォロー' },
+			];
+			thanksEl.innerHTML = sample
+				.map((x) => `<li class="alert-item"><span class="alert-title">${escapeHtml(x.who)}</span><span class="alert-meta">${escapeHtml(x.what)}</span></li>`)
+				.join('');
+		}
 	}
 
 	init();

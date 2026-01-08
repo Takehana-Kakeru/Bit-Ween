@@ -16,35 +16,34 @@
 <header class="site-header" role="banner">
 <div class="container header-inner">
 <a class="brand" href="#" data-route="home" aria-label="Bit-ween ホーム">
-<span class="brand-mark" aria-hidden="true">
-<img class="brand-logo" src="../shooting/img/logo.png" alt="" loading="eager" decoding="async" />
+<span class="brand-banner" aria-hidden="true">
+<span class="brand-banner-kicker">社員の集いの場</span>
+<span class="brand-banner-word">Bit-ween</span>
 </span>
-<span class="brand-name">Bit-ween</span>
-<span class="brand-tag">温度スコアを可視化</span>
 </a>
 
 <nav class="site-nav" aria-label="グローバルメニュー">
-<a class="nav-link" href="#" data-route="home">収集</a>
-<a class="nav-link" href="#" data-route="article">会話</a>
-<a class="nav-link" href="#" data-route="search">興味</a>
-<a class="nav-link" href="#" data-route="search" data-focus="matchPanel">マッチング</a>
+<a class="nav-link" href="#" data-route="home">ホーム</a>
+<a class="nav-link" href="#" data-route="content">記事</a>
+<a class="nav-link" href="#" data-route="members">メンバー</a>
+<a class="nav-link" href="#" data-route="mypage">マイページ</a>
 </nav>
 
 <div class="header-actions">
 <button class="icon-btn" type="button" id="toggleMenu" aria-label="メニューを開閉" aria-expanded="false">
 <span class="icon-bars" aria-hidden="true"></span>
 </button>
-<button class="btn btn-primary" type="button" id="contactBtn">CONTACT</button>
+<button class="btn btn-primary" type="button" id="heatUpBtn" aria-label="温度上昇（デモ）">温度上昇</button>
 </div>
 </div>
 
 <div class="mobile-nav" id="mobileNav" hidden>
 <div class="container mobile-nav-inner">
-<a class="nav-link" href="#" data-route="home">収集</a>
-<a class="nav-link" href="#" data-route="article">会話</a>
-<a class="nav-link" href="#" data-route="search">興味</a>
-<a class="nav-link" href="#" data-route="search" data-focus="matchPanel">マッチング</a>
-<button class="btn btn-primary" type="button" id="contactBtnMobile">CONTACT</button>
+<a class="nav-link" href="#" data-route="home">ホーム</a>
+<a class="nav-link" href="#" data-route="content">記事</a>
+<a class="nav-link" href="#" data-route="members">メンバー</a>
+<a class="nav-link" href="#" data-route="mypage">マイページ</a>
+<button class="btn btn-primary" type="button" id="heatUpBtnMobile" aria-label="温度上昇（デモ）">温度上昇</button>
 </div>
 </div>
 </header>
@@ -68,14 +67,19 @@
 </div>
 <div class="section-tools">
 <button class="btn btn-ghost" type="button" data-route="home">社内情報をパッと収集</button>
-<button class="btn btn-ghost" type="button" data-route="article">業務連絡よりも気軽に会話</button>
-<button class="btn btn-ghost" type="button" data-route="search">社員の興味をノータイム把握</button>
-<button class="btn btn-ghost" type="button" data-route="search" data-focus="matchPanel">相性の良い社員をマッチング</button>
+<button class="btn btn-ghost" type="button" data-route="content">業務連絡よりも気軽に会話</button>
+<button class="btn btn-ghost" type="button" data-route="members">社員の興味をノータイム把握</button>
+<button class="btn btn-ghost" type="button" data-route="members" data-focus="matchPanel">相性の良い社員をマッチング</button>
 </div>
 </div>
 
-<div class="dash-layout">
-<div>
+<div class="subnav" aria-label="ホーム サブメニュー">
+<button class="subtab" type="button" data-subtab="home" data-subview="overview" aria-pressed="true">概況</button>
+<button class="subtab" type="button" data-subtab="home" data-subview="signals" aria-pressed="false">周辺</button>
+</div>
+
+<div class="subview" data-subview="overview">
+<div class="overview-row">
 <div class="panel">
 <div class="panel-head">
 <h3 class="panel-title">今日の概況</h3>
@@ -101,20 +105,96 @@
 </div>
 </div>
 
-<div class="panel">
+<div class="panel heat-panel" aria-label="今日の集めた温度">
 <div class="panel-head">
-<h3 class="panel-title">温度スコア グラフ（準備）</h3>
-<p class="panel-sub">Chart.js想定 / 未読込時はフォールバック</p>
+<h3 class="panel-title">今日の集めた温度</h3>
+<p class="panel-sub">（温度を確認する）</p>
 </div>
-<div class="chart-box" aria-label="温度グラフ">
-<canvas id="orgTempChart" height="220" aria-label="温度スコアの棒グラフ"></canvas>
-<div id="chartFallback" class="chart-fallback" hidden>
-<div class="muted small">Chart.js が読み込めないため、簡易表示に切り替えました。</div>
-<div id="fallbackBars" class="fbars" aria-hidden="true"></div>
+
+<div class="heat-gauge" role="group" aria-label="温度ゲージ">
+<div class="heat-gauge-top">
+<span class="muted small">ゲージ</span>
+<span id="todayHeatValue" class="pill heat" style="--p:0">—</span>
+</div>
+<div class="heat-gauge-meta" aria-label="目標">
+<span id="todayHeatGoal" class="muted small">次の目標: —</span>
+<span id="todayHeatToGoal" class="muted small">—</span>
+</div>
+<div class="heat-thermo" aria-label="縦ゲージ" role="img">
+<div id="todayThermo" class="thermo thermo-lg thermo-heat" style="--p:0" aria-hidden="true">
+<div class="thermo-fluid" aria-hidden="true"></div>
+</div>
+<div class="thermo-scale" aria-hidden="true">
+<div class="thermo-mark" style="--m:100"><span>100%</span></div>
+<div class="thermo-mark" style="--m:85"><span>85%</span></div>
+<div class="thermo-mark" style="--m:70"><span>70%</span></div>
+<div class="thermo-mark" style="--m:50"><span>50%</span></div>
+</div>
+</div>
+<div class="mini-note">高いほど「いま話しかけたい」気配が強い（デモ）</div>
+</div>
 </div>
 </div>
 </div>
 
+<div class="subview" data-subview="signals" hidden>
+<div class="dash-layout">
+<div>
+<div class="panel">
+<div class="panel-head">
+<h3 class="panel-title">温度スコアランキング</h3>
+<p class="panel-sub">上位3件（デモ）</p>
+</div>
+<ol id="popularList" class="rank" aria-label="ランキング"></ol>
+</div>
+
+<div class="panel">
+<div class="panel-head">
+<h3 class="panel-title">要フォロー（アラート）</h3>
+<p class="panel-sub">網羅率/最終アクセスなど（デモ）</p>
+</div>
+<ul id="alertList" class="alerts" aria-label="アラート"></ul>
+</div>
+
+<div class="panel">
+<div class="section-head compact">
+<div>
+<h3 class="section-title">カレンダー</h3>
+<p class="section-sub">日/週/月（モック）</p>
+</div>
+<div class="segmented" aria-label="表示切替">
+<button class="seg" type="button" data-cal-view="day" aria-pressed="false">日</button>
+<button class="seg" type="button" data-cal-view="week" aria-pressed="false">週</button>
+<button class="seg" type="button" data-cal-view="month" aria-pressed="true">月</button>
+</div>
+</div>
+<div id="calendar" class="calendar" aria-label="カレンダー"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section class="route" data-route="content" hidden>
+<div class="container">
+<div class="section-head">
+<div>
+<h2 class="section-title">記事</h2>
+<p class="section-sub">検索 / タグ / 並び替え（モック）</p>
+</div>
+<div class="section-tools">
+<a class="nav-link" href="#" data-route="home"> Homeへ戻る</a>
+</div>
+</div>
+
+<p class="mini-note">※「温度スコア」は閲覧率などから算出する関心の指標です。</p>
+
+<div class="subnav" aria-label="記事 サブメニュー">
+<button class="subtab" type="button" data-subtab="content" data-subview="list" aria-pressed="true">一覧</button>
+<button class="subtab" type="button" data-subtab="content" data-subview="metrics" aria-pressed="false">メトリクス</button>
+</div>
+
+<div class="subview" data-subview="list">
 <div class="panel">
 <div class="section-head compact">
 <div>
@@ -156,6 +236,9 @@
 <div id="articleList" class="cards" aria-label="記事一覧"></div>
 </div>
 
+</div>
+
+<div class="subview" data-subview="metrics" hidden>
 <div class="panel">
 <div class="panel-head">
 <h3 class="panel-title">記事別メトリクス</h3>
@@ -177,38 +260,6 @@
 </div>
 </div>
 
-<aside>
-<div class="panel">
-<div class="panel-head">
-<h3 class="panel-title">温度スコアランキング</h3>
-<p class="panel-sub">上位3件（デモ）</p>
-</div>
-<ol id="popularList" class="rank" aria-label="ランキング"></ol>
-</div>
-
-<div class="panel">
-<div class="panel-head">
-<h3 class="panel-title">要フォロー（アラート）</h3>
-<p class="panel-sub">網羅率/最終アクセスなど（デモ）</p>
-</div>
-<ul id="alertList" class="alerts" aria-label="アラート"></ul>
-</div>
-
-<div class="panel">
-<div class="section-head compact">
-<div>
-<h3 class="section-title">カレンダー</h3>
-<p class="section-sub">日/週/月（モック）</p>
-</div>
-<div class="segmented" aria-label="表示切替">
-<button class="seg" type="button" data-cal-view="day" aria-pressed="false">日</button>
-<button class="seg" type="button" data-cal-view="week" aria-pressed="false">週</button>
-<button class="seg" type="button" data-cal-view="month" aria-pressed="true">月</button>
-</div>
-</div>
-<div id="calendar" class="calendar" aria-label="カレンダー"></div>
-</div>
-</aside>
 </div>
 </div>
 </section>
@@ -231,15 +282,6 @@
 <div id="articleTags" class="tags" aria-label="タグ"></div>
 <div id="articleBody" class="detail-body"></div>
 </div>
-
-<div class="detail-grid">
-<div class="panel">
-<div class="panel-head">
-<h3 class="panel-title">指標</h3>
-<p class="panel-sub">閲覧率網羅率温度</p>
-</div>
-<div class="kpis">
-<div class="kpi">
 <div class="kpi-label">閲覧率</div>
 <div class="kpi-val" id="detailViews">—</div>
 </div>
@@ -307,16 +349,28 @@
 </div>
 </section>
 
-<section class="route" data-route="search" hidden>
+<section class="route" data-route="members" hidden>
 <div class="container">
 <div class="section-head">
 <div>
-<h2 class="section-title">社員検索</h2>
-<p class="section-sub">趣味投稿やスキルから、自然な接点を見つける（モック）</p>
+<h2 class="section-title">メンバー</h2>
+<p class="section-sub">温度スコア（関心の指標）で、話しかける“きっかけ”を見つける（モック）</p>
+</div>
+<div class="section-tools">
+<a class="nav-link" href="#" data-route="home"> Homeへ戻る</a>
 </div>
 </div>
 
-<p class="mini-note">※公開範囲や匿名などの「見られたくない人への配慮」は設計として想定しています（この画面はデモ）。</p>
+<p class="mini-note">※温度スコアは、閲覧・網羅・反応をもとにした「関心の指標」（デモ）です。公開範囲や匿名などの配慮も設計として想定しています。</p>
+
+<div class="subnav" aria-label="メンバー サブメニュー">
+<button class="subtab" type="button" data-subtab="members" data-subview="list" aria-pressed="true">社員一覧</button>
+<button class="subtab" type="button" data-subtab="members" data-subview="skill" aria-pressed="false">スキル検索</button>
+<button class="subtab" type="button" data-subtab="members" data-subview="match" aria-pressed="false">マッチング</button>
+<button class="subtab" type="button" data-subtab="members" data-subview="history" aria-pressed="false">履歴</button>
+</div>
+
+<div class="subview" data-subview="list">
 
 <div class="panel">
 <div class="section-tools">
@@ -346,6 +400,8 @@
 <div class="field">
 <label class="field-label" for="empSort">並び替え</label>
 <select id="empSort" class="select">
+<option value="fav">お気に入り</option>
+<option value="temp">温度スコア</option>
 <option value="coverage">網羅率</option>
 <option value="last">最終アクセス</option>
 <option value="join">入社日</option>
@@ -359,26 +415,167 @@
 <option value="12">12</option>
 </select>
 </div>
+
+<div class="field">
+<span class="field-label">表示</span>
+<label class="check">
+<input id="empFavOnly" type="checkbox" />
+お気に入りのみ
+</label>
 </div>
+</div>
+
+</div>
+
+<div id="employeeList" class="emp-grid" aria-label="社員一覧"></div>
+</div>
+
+<div class="subview" data-subview="skill" hidden>
 
 <div class="panel" style="margin-top: 14px;">
 <div class="panel-head">
-<h3 class="panel-title">スキル（絞り込み）</h3>
+<h3 class="panel-title">スキル検索（絞り込み）</h3>
 <p class="panel-sub">複数選択OK</p>
 </div>
 <div id="skillChips" class="chips" aria-label="スキル"></div>
 </div>
+
+<div id="employeeListSkill" class="emp-grid" aria-label="スキル検索結果"></div>
+
 </div>
 
-<div class="panel" id="matchPanel" style="margin-top: 14px;">
+<div class="subview" data-subview="match" hidden>
+
+<div class="mini-note">※ここでは名前/所属/顔は非表示。ハートした「カケラ」は、履歴で開示されます（デモ）。</div>
+
+<div id="matchPanel" class="seren-stage" aria-label="セレンディピティ・マッチング（プロフィール断片フロー）">
+<div class="seren-stage-head">
+<div>
+<div class="seren-title">セレンディピティ・マッチング</div>
+<div class="seren-sub">「内面の断片（カケラ）」が流れてくる。気になる星屑にハート。</div>
+</div>
+<div class="seren-stage-meta">
+	<div class="seren-hint">誰から押されたかは相手に伝わりません（デモ）</div>
+	<div class="seren-heat" aria-label="現在の温度">
+		<span id="serenHeatValue" class="pill heat" style="--p:0">温度 —</span>
+		<span id="serenThermo" class="thermo thermo-sm thermo-heat" style="--p:0" aria-hidden="true"><span class="thermo-fluid" aria-hidden="true"></span></span>
+	</div>
+</div>
+</div>
+<div id="serendipityFlow" class="seren-flow" aria-label="プロフィール断片"></div>
+</div>
+
+</div>
+
+<div class="subview" data-subview="history" hidden>
+
+<div class="panel" style="margin-top: 14px;">
 <div class="panel-head">
-<h3 class="panel-title">おすすめの相手（デモ）</h3>
-<p class="panel-sub">共通スキルや温度スコアの近さから提案</p>
+<h3 class="panel-title">マッチングリスト（履歴）</h3>
+<p class="panel-sub">ハートしたカケラの持ち主が、ここで初めて開示されます（デモ）</p>
 </div>
-<ol id="matchList" class="rank" aria-label="おすすめ"></ol>
+<div id="matchHistory" class="emp-grid" aria-label="マッチング履歴"></div>
 </div>
 
-<div id="employeeList" class="emp-grid" aria-label="社員一覧"></div>
+</div>
+</div>
+</section>
+
+<section class="route" data-route="mypage" hidden>
+<div class="container">
+<div class="section-head">
+<div>
+<h2 class="section-title">マイページ</h2>
+<p class="section-sub">自分の傾向（熱狂度 / 反応）をふりかえる（モック）</p>
+</div>
+<div class="section-tools">
+<a class="nav-link" href="#" data-route="home"> Homeへ戻る</a>
+</div>
+</div>
+
+<p class="mini-note">※「熱狂度（エンゲージメント）」は、閲覧や反応をもとにした指標（デモ）です。</p>
+
+<div class="subnav" aria-label="マイページ サブメニュー">
+<button class="subtab" type="button" data-subtab="mypage" data-subview="overview" aria-pressed="true">概要</button>
+<button class="subtab" type="button" data-subtab="mypage" data-subview="engagement" aria-pressed="false">熱狂度</button>
+<button class="subtab" type="button" data-subtab="mypage" data-subview="thanks" aria-pressed="false">ありがとう</button>
+</div>
+
+<div class="subview" data-subview="overview">
+<div class="panel">
+<div class="panel-head">
+<h3 class="panel-title">プロフィール（デモ）</h3>
+<p class="panel-sub">公開範囲は設計で制御する想定</p>
+</div>
+<div class="kv">
+<div class="kv-row"><span class="kv-k">名前</span><span class="kv-v" id="myName">—</span></div>
+<div class="kv-row"><span class="kv-k">部署</span><span class="kv-v" id="myDept">—</span></div>
+<div class="kv-row"><span class="kv-k">注目タグ</span><span class="kv-v" id="myTags">—</span></div>
+</div>
+
+<form id="myProfileForm" class="profile-form" action="#" method="post" style="margin-top: 14px;">
+<div class="section-head compact">
+<div>
+<h3 class="section-title">任意入力（話しかけるきっかけ）</h3>
+<p class="section-sub">趣味・出身地・地元ネタ・世間話など</p>
+</div>
+</div>
+
+<div class="section-tools">
+<div class="field">
+<label class="field-label" for="myHobbies">趣味</label>
+<input id="myHobbies" class="input" type="text" placeholder="例: カフェ巡り, 釣り, サウナ" />
+</div>
+<div class="field">
+<label class="field-label" for="myHometown">出身地</label>
+<input id="myHometown" class="input" type="text" placeholder="例: 福岡 / 札幌 / 横浜" />
+</div>
+<div class="field">
+<label class="field-label" for="myLocalTalk">地元ネタ</label>
+<input id="myLocalTalk" class="input" type="text" placeholder="例: 推しのラーメン / 地元の祭り" />
+</div>
+<div class="field" style="grid-column: 1 / -1;">
+<label class="field-label" for="mySmallTalk">世間話欄</label>
+<textarea id="mySmallTalk" class="textarea" rows="3" placeholder="例: 最近ハマっていること、話しかけてほしい話題"></textarea>
+</div>
+<div class="comment-foot" style="grid-column: 1 / -1; justify-content: flex-end;">
+<button class="btn btn-primary" type="submit">保存</button>
+</div>
+</div>
+</form>
+</div>
+</div>
+
+<div class="subview" data-subview="engagement" hidden>
+<div class="panel">
+<div class="panel-head">
+<h3 class="panel-title">熱狂度（エンゲージメント）</h3>
+<p class="panel-sub">閲覧・網羅・反応から算出（デモ）</p>
+</div>
+<div class="stats" role="list">
+<div class="stat" role="listitem">
+<div class="stat-label">熱狂度</div>
+<div class="stat-val"><span id="myEngagement"></span><span class="stat-unit">%</span></div>
+<div class="stat-sub">直近の行動から算出（デモ）</div>
+</div>
+<div class="stat" role="listitem">
+<div class="stat-label">今週の反応</div>
+<div class="stat-val"><span id="myWeeklyReactions"></span><span class="stat-unit">件</span></div>
+<div class="stat-sub">いいね + ありがとう + コメント（デモ）</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="subview" data-subview="thanks" hidden>
+<div class="panel">
+<div class="panel-head">
+<h3 class="panel-title">送った「ありがとう」（デモ）</h3>
+<p class="panel-sub">軽い感謝を積み上げやすく</p>
+</div>
+<ul id="myThanksList" class="alerts" aria-label="ありがとう履歴"></ul>
+</div>
+</div>
 </div>
 </section>
 </main>
