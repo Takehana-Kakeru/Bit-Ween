@@ -15,6 +15,13 @@
 	const state = {
 		route: 'home',
 		selectedArticleId: null,
+		adminSelectedPersonId: '',
+		adminPersonFilters: {
+			dept: '',
+			type: '',
+			articleType: '',
+			tempBand: '',
+		},
 		activeTag: '',
 		activeCategory: '',
 		skillFilters: new Set(),
@@ -35,6 +42,7 @@
 		},
 		analytics: {
 			chart: null,
+			charts: {},
 			lastRenderedAt: 0,
 		},
 		auth: {
@@ -2404,6 +2412,10 @@
 		const authed = Boolean(state.auth && state.auth.isLoggedIn);
 		const r = !authed && desired !== 'login' ? 'login' : desired;
 		state.route = r;
+		const isAdminRoute = /^admin($|-)/.test(r);
+		document.body.classList.toggle('theme-admin', isAdminRoute);
+		const adminNav = document.getElementById('adminNav');
+		if (adminNav) adminNav.hidden = !isAdminRoute;
 		syncActiveGlobalNav(r);
 		$$('.route').forEach((sec) => {
 			const isActive = sec.dataset.route === r;
@@ -2415,6 +2427,15 @@
 		}
 		if (r === 'admin-analytics') {
 			renderAdminAnalytics();
+		}
+		if (r === 'admin-usage') {
+			renderAdminUsage();
+		}
+		if (r === 'admin-person') {
+			renderAdminPerson();
+		}
+		if (r === 'admin-person-view') {
+			renderAdminPersonView();
 		}
 		if (r === 'login') {
 			renderLogin();
@@ -2748,278 +2769,1557 @@
 		return out;
 	}
 
-	function renderAdminAnalytics() {
-		const root = document.querySelector('.route[data-route="admin-analytics"]');
-		if (!root) return;
-		const elView = document.getElementById('anaViewRate');
-		const elCov = document.getElementById('anaCoverage');
-		const elTemp = document.getElementById('anaTemp');
-		const elViewDelta = document.getElementById('anaViewDelta');
-		const elCovDelta = document.getElementById('anaCoverageDelta');
-		const elTempDelta = document.getElementById('anaTempDelta');
-		const elViewTarget = document.getElementById('anaViewTarget');
-		const elCovTarget = document.getElementById('anaCoverageTarget');
-		const elTempTarget = document.getElementById('anaTempTarget');
-		const insightPill = document.getElementById('anaInsightPill');
-		const insightText = document.getElementById('anaInsightText');
-		const tagTopList = document.getElementById('tagTopList');
-		const alertsEl = document.getElementById('bottleneckAlerts');
-		const heatGapEl = document.getElementById('heatGapMap');
+	function ensureAnalyticsCharts() {
+		if (!state.analytics) state.analytics = { chart: null, charts: {}, lastRenderedAt: 0 };
+		if (!state.analytics.charts || typeof state.analytics.charts !== 'object') state.analytics.charts = {};
+	}
 
-		if (!elView || !elCov || !elTemp || !elViewDelta || !elCovDelta || !elTempDelta || !tagTopList || !alertsEl || !heatGapEl) return;
+	function destroyAnalyticsChart(key) {
+		ensureAnalyticsCharts();
+		const c = state.analytics.charts[key];
+		if (!c) return;
+		try {
+			c.destroy();
+		} catch {
+			// ignore
+		}
+		state.analytics.charts[key] = null;
+	}
 
-		const now = Date.now();
-		const toMs = now;
-		const fromMs = daysAgoMs(30);
-		const prevFromMs = daysAgoMs(60);
-		const prevToMs = daysAgoMs(30);
-		const curArticles = periodArticles({ fromMs, toMs });
-		const prevArticles = periodArticles({ fromMs: prevFromMs, toMs: prevToMs });
-		const cur = computeOrgMetrics(curArticles);
-		const prev = computeOrgMetrics(prevArticles);
+	function sumArticleReactions(list) {
+		return safeArray(list).reduce((s, a) => {
+			ensureArticleReactions(a);
+			const r = a.reactions || { like: 0, thanks: 0, comment: 0 };
+			return s + (Number(r.like) || 0) + (Number(r.thanks) || 0) + (Number(r.comment) || 0);
+		}, 0);
+	}
 
-		// Targets (デモ)
-		const target = {
-			views: 70,
-			coverage: 65,
-			temp: 60,
+	function metricLabel(metric) {
+		const m = String(metric || 'temp');
+		if (m === 'reactions') return { label: '反応数', unit: '件' };
+		if (m === 'views') return { label: '閲覧率', unit: '%' };
+		if (m === 'coverage') return { label: '網羅率', unit: '%' };
+		return { label: '温度スコア', unit: '%' };
+	}
+
+	function metricValueForArticles(metric, list) {
+		const m = String(metric || 'temp');
+		const arr = safeArray(list);
+		if (!arr.length) return 0;
+		if (m === 'reactions') return Math.round(sumArticleReactions(arr));
+		if (m === 'views') return Math.round(arr.reduce((s, a) => s + (Number(a.views) || 0), 0) / Math.max(1, arr.length));
+		if (m === 'coverage') return Math.round(arr.reduce((s, a) => s + (Number(a.coverage) || 0), 0) / Math.max(1, arr.length));
+		return Math.round(arr.reduce((s, a) => s + computeTemp(a), 0) / Math.max(1, arr.length));
+	}
+
+	function seededRand01(seed) {
+		// deterministic PRNG (0..1)
+		const x = Math.sin(Number(seed) * 999.123) * 10000;
+		return x - Math.floor(x);
+	}
+
+	function hashStringToInt(str) {
+		const s = String(str || '');
+		let h = 2166136261;
+		for (let i = 0; i < s.length; i++) {
+			h ^= s.charCodeAt(i);
+			h = Math.imul(h, 16777619);
+		}
+		return h >>> 0;
+	}
+
+	function heatmapColorByRate(rate) {
+		const p = clamp(Math.round(Number(rate) || 0), 0, 100);
+		const hue = Math.round((p / 100) * 120); // 0:red -> 120:green
+		return {
+			bg: `hsl(${hue} 86% 54% / 0.82)`,
+			fg: p < 55 ? 'rgba(255,255,255,0.92)' : 'rgba(11,18,32,0.92)',
 		};
+	}
 
-		elView.textContent = String(cur.viewsAvg);
-		elCov.textContent = String(cur.coverageAvg);
-		elTemp.textContent = String(cur.tempAvg);
-		elViewDelta.textContent = deltaLabel(cur.viewsAvg, prev.viewsAvg);
-		elCovDelta.textContent = deltaLabel(cur.coverageAvg, prev.coverageAvg);
-		elTempDelta.textContent = deltaLabel(cur.tempAvg, prev.tempAvg);
-		if (elViewTarget) elViewTarget.textContent = targetLabel(cur.viewsAvg, target.views);
-		if (elCovTarget) elCovTarget.textContent = targetLabel(cur.coverageAvg, target.coverage);
-		if (elTempTarget) elTempTarget.textContent = targetLabel(cur.tempAvg, target.temp);
+	function pseudoDeptArticleViewRate(dept, article) {
+		const d = String(dept || '').trim();
+		const aid = String(article?.id || article?.slug || article?.title || '');
+		const base = clamp(Math.round(Number(article?.views) || 0), 0, 100);
+		const seed = hashStringToInt(`${d}::${aid}`);
+		const drift = (seededRand01(seed) - 0.5) * 46;
+		const deptBias = (seededRand01(seed + 17) - 0.5) * 18;
+		return clamp(Math.round(base + drift + deptBias), 0, 100);
+	}
 
-		const insight = buildInsight(cur);
-		if (insightPill) {
-			insightPill.textContent = insight.title;
-			insightPill.style.setProperty('--p', String(clamp(insight.heat, 0, 100)));
-			insightPill.className = `pill ${insight.heat >= 70 ? 'heat' : insight.heat >= 45 ? 'warm' : 'cool'}`;
+	function pseudoEmployeeReadForCell(employee, dept, article, cellRate) {
+		const empId = String(employee?.id || employee?.employeeNo || employee?.name || '');
+		const d = String(dept || '').trim();
+		const aid = String(article?.id || article?.slug || article?.title || '');
+		const seed = hashStringToInt(`${empId}::${d}::${aid}`);
+		const r1 = seededRand01(seed);
+		const r2 = seededRand01(seed + 7);
+		const r3 = seededRand01(seed + 13);
+		const p = clamp(Math.round(Number(cellRate) || 0), 0, 100);
+		const reach = clamp(Math.round(p * 0.70 + (r1 - 0.45) * 55), 0, 100);
+		const seconds = clamp(Math.round(8 + reach * 1.8 + r2 * 55 + r3 * 18), 5, 420);
+		return { seconds, reach };
+	}
+
+	function pseudoCoverageHistory(employee, points = 4) {
+		const base = clamp(Math.round(Number(employee?.coverage) || 0), 0, 100);
+		const id = String(employee?.id || employee?.employeeNo || employee?.name || '0');
+		let hash = 0;
+		for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+		const out = [];
+		let cur = base;
+		for (let i = 0; i < Math.max(2, points); i++) {
+			const r = seededRand01(hash + i * 17);
+			// 基本は少し揺らす。特定シードは下降トレンドになりやすい（デモ用）。
+			const drift = (seededRand01(hash) < 0.22 ? -18 : -6) + (r - 0.5) * 14;
+			cur = clamp(Math.round(cur + drift), 0, 100);
+			out.push(cur);
 		}
-		if (insightText) insightText.textContent = insight.text;
+		// 新しい順にしたいので、最後が最新扱い
+		return out;
+	}
 
-		// Tag top list
-		const topTags = computeTopTags(curArticles, 6);
-		tagTopList.innerHTML = '';
-		topTags.forEach(([tag, score], i) => {
-			const li = document.createElement('li');
-			li.className = 'rank-item';
-			li.innerHTML = `
-				<div class="rank-link" style="cursor: default;">
-					<span class="rank-title">${i + 1}. ${escapeHtml(tag)}</span>
-					<span class="rank-meta"><span class="pill warm" style="--p:${clamp(Math.round(score / 6), 0, 100)}">反応 ${Math.round(score)}</span><span>刺さり</span></span>
-				</div>
-			`;
-			tagTopList.appendChild(li);
+	function isFollowUpCandidateByPseudoLogic(employee) {
+		const hist = pseudoCoverageHistory(employee, 4);
+		if (hist.length < 4) return false;
+		// 直近3回、20pt以上の連続低下
+		const d1 = hist[1] - hist[0];
+		const d2 = hist[2] - hist[1];
+		const d3 = hist[3] - hist[2];
+		return d1 <= -20 && d2 <= -20 && d3 <= -20;
+	}
+
+	function buildEmployeeUsageSignals(list) {
+		const now = Date.now();
+		let active7 = 0;
+		let stale21 = 0;
+		let sumTemp = 0;
+		let n = 0;
+		safeArray(list).forEach((e) => {
+			const last = Number(new Date(e?.last).getTime());
+			const days = Number.isFinite(last) ? (now - last) / (24 * 60 * 60 * 1000) : 999;
+			if (days <= 7) active7 += 1;
+			if (days >= 21) stale21 += 1;
+			sumTemp += computePersonTemp(e);
+			n += 1;
 		});
-		if (!topTags.length) {
-			const li = document.createElement('li');
-			li.className = 'mini-note';
-			li.textContent = '反応データがまだ少ないため、タグ上位は集計中です（デモ）。';
-			tagTopList.appendChild(li);
+		return {
+			active7,
+			stale21,
+			avgTemp: Math.round(sumTemp / Math.max(1, n)),
+		};
+	}
+
+	function classifyUsageType(e) {
+		const now = Date.now();
+		const last = Number(new Date(e?.last).getTime());
+		const days = Number.isFinite(last) ? (now - last) / (24 * 60 * 60 * 1000) : 999;
+		const t = computePersonTemp(e);
+		const cov = Number(e?.coverage) || 0;
+		if (days >= 21 || (t < 40 && cov < 45)) return '要フォロー';
+		if (days <= 7 && t >= 65) return '好調';
+		if (t >= 65) return '反応強め';
+		if (cov >= 75) return '読み込み型';
+		return '様子見';
+	}
+
+	function pseudoPersonArticleMetrics(employee, article) {
+		const empId = String(employee?.id || employee?.employeeNo || employee?.name || '');
+		const aid = String(article?.id || article?.slug || article?.title || '');
+		const seed = hashStringToInt(`${empId}::${aid}`);
+		const r1 = seededRand01(seed);
+		const r2 = seededRand01(seed + 3);
+		const r3 = seededRand01(seed + 11);
+		const base = clamp(Math.round(Number(employee?.coverage) || 0), 0, 100);
+		const art = clamp(Math.round(Number(article?.coverage) || 0), 0, 100);
+		const reach = clamp(Math.round(base * 0.45 + art * 0.35 + (r1 - 0.42) * 70), 0, 100);
+		const seconds = clamp(Math.round(6 + reach * 1.6 + r2 * 75 + r3 * 24), 4, 520);
+		let status = '未読';
+		if (reach >= 90 && seconds >= 45) status = '読了';
+		else if (reach >= 25) status = '既読';
+		return { status, seconds, reach };
+	}
+
+	function aggregatePersonAcrossArticles(employee, articleList) {
+		const list = safeArray(articleList);
+		let done = 0;
+		let read = 0;
+		let unread = 0;
+		let totalSeconds = 0;
+		let totalReach = 0;
+		list.forEach((a) => {
+			const m = pseudoPersonArticleMetrics(employee, a);
+			if (m.status === '読了') done += 1;
+			else if (m.status === '既読') read += 1;
+			else unread += 1;
+			totalSeconds += Number(m.seconds) || 0;
+			totalReach += Number(m.reach) || 0;
+		});
+		const n = Math.max(1, list.length);
+		const readRate = Math.round(((done + read) / n) * 100);
+		const avgSeconds = Math.round(totalSeconds / n);
+		const avgReach = Math.round(totalReach / n);
+		return {
+			count: list.length,
+			done,
+			read,
+			unread,
+			readRate,
+			avgSeconds,
+			avgReach,
+			totalSeconds,
+		};
+	}
+
+	function renderAdminUsage() {
+		const root = document.querySelector('.route[data-route="admin-usage"]');
+		if (!root) return;
+		const deptSel = document.getElementById('usageFilterDept');
+		const typeSel = document.getElementById('usageFilterType');
+		const articleTypeSel = document.getElementById('usageFilterArticleType');
+		const tempBandSel = document.getElementById('usageFilterTempBand');
+		const resetBtn = document.getElementById('usageFilterReset');
+		const elActive7 = document.getElementById('usageActive7');
+		const elStale21 = document.getElementById('usageStale21');
+		const elAvgTemp = document.getElementById('usageAvgTemp');
+		const tbody = document.getElementById('usageMemberRows');
+		const detailTitle = document.getElementById('usagePersonDetailTitle');
+		const detailSummary = document.getElementById('usagePersonDetailSummary');
+		const detailRows = document.getElementById('usagePersonDetailRows');
+		const detailEmpty = document.getElementById('usagePersonDetailEmpty');
+		if (!deptSel || !typeSel || !articleTypeSel || !tempBandSel || !resetBtn || !elActive7 || !elStale21 || !elAvgTemp || !tbody || !detailTitle || !detailSummary || !detailRows || !detailEmpty) return;
+
+		function applyFiltersToEmployee(e) {
+			const f = state.adminPersonFilters || {};
+			const dept = String(e?.dept || '—');
+			const type = classifyUsageType(e);
+			const articleType = String(e?.articleType || '');
+			const temp = computePersonTemp(e);
+			if (f.dept && dept !== f.dept) return false;
+			if (f.type && type !== f.type) return false;
+			if (f.articleType && articleType !== f.articleType) return false;
+			if (f.tempBand) {
+				if (f.tempBand === 'low' && temp >= 40) return false;
+				if (f.tempBand === 'mid' && (temp < 40 || temp >= 70)) return false;
+				if (f.tempBand === 'high' && temp < 70) return false;
+			}
+			return true;
 		}
 
-		// Segment chart
-		renderSegmentChart();
+		function syncUsageFilterControlsFromState() {
+			const f = state.adminPersonFilters || {};
+			deptSel.value = String(f.dept || '');
+			typeSel.value = String(f.type || '');
+			articleTypeSel.value = String(f.articleType || '');
+			tempBandSel.value = String(f.tempBand || '');
+		}
 
-		function renderSegmentChart() {
-			const ctx = document.getElementById('segmentChart');
-			const fallback = document.getElementById('segmentChartFallback');
-			if (!ctx) return;
-			const seg = segmentEmployees();
-			const data = [seg.sensitive, seg.theme, seg.unread];
-			const labels = ['情報に敏感な層', '特定テーマ反応層', '未読・低関心層'];
+		syncUsageFilterControlsFromState();
 
-			if (!window.Chart) {
-				if (fallback) {
-					fallback.hidden = false;
-					fallback.textContent = `${labels[0]}: ${data[0]}人 / ${labels[1]}: ${data[1]}人 / ${labels[2]}: ${data[2]}人`; // デモ
-				}
+		const list = safeArray(employees).filter(applyFiltersToEmployee);
+		const sig = buildEmployeeUsageSignals(list);
+		elActive7.textContent = String(sig.active7);
+		elStale21.textContent = String(sig.stale21);
+		elAvgTemp.textContent = String(sig.avgTemp);
+
+		tbody.innerHTML = '';
+		const now = Date.now();
+		const rows = list
+			.map((e) => {
+				const last = Number(new Date(e?.last).getTime());
+				const days = Number.isFinite(last) ? Math.floor((now - last) / (24 * 60 * 60 * 1000)) : 999;
+				return {
+					id: String(e?.id || ''),
+					employeeNo: String(e?.employeeNo || ''),
+					name: String(e?.name || '—'),
+					dept: String(e?.dept || '—'),
+					lastDays: days,
+					temp: computePersonTemp(e),
+					coverage: clamp(Math.round(Number(e?.coverage) || 0), 0, 100),
+					type: classifyUsageType(e),
+					articleType: String(e?.articleType || ''),
+				};
+			})
+			.filter((r) => r.id)
+			.sort((a, b) => {
+				// 要フォロー優先 → 温度低い順
+				const aPri = a.type === '要フォロー' ? 0 : 1;
+				const bPri = b.type === '要フォロー' ? 0 : 1;
+				if (aPri !== bPri) return aPri - bPri;
+				return a.temp - b.temp;
+			})
+			.slice(0, 14);
+
+		// フィルタで選択社員が消えた場合はクリア
+		if (state.adminSelectedPersonId) {
+			const visibleSet = new Set(rows.map((r) => r.id));
+			if (!visibleSet.has(String(state.adminSelectedPersonId || ''))) state.adminSelectedPersonId = '';
+		}
+
+		rows.forEach((r) => {
+			const tr = document.createElement('tr');
+			tr.className = 'row-link';
+			tr.setAttribute('data-emp-id', r.id);
+			if (String(state.adminSelectedPersonId || '') === r.id) tr.setAttribute('data-selected', 'true');
+			tr.innerHTML = `
+				<td>${escapeHtml(r.name)}</td>
+				<td>${escapeHtml(r.dept)}</td>
+				<td class="num">${escapeHtml(r.employeeNo || '—')}</td>
+				<td class="num">${Number.isFinite(r.lastDays) ? `${r.lastDays}日前` : '—'}</td>
+				<td class="num">${r.temp}%</td>
+				<td class="num">${r.coverage}%</td>
+				<td>${escapeHtml(r.type)}</td>
+				<td>${escapeHtml(String(r.articleType || '—').toUpperCase())}</td>
+			`;
+			tbody.appendChild(tr);
+		});
+		if (!rows.length) {
+			const tr = document.createElement('tr');
+			tr.innerHTML = `<td colspan="8" class="muted">データがまだ少ないため集計中です（デモ）。</td>`;
+			tbody.appendChild(tr);
+		}
+
+		function renderUsagePersonDetail() {
+			const empId = String(state.adminSelectedPersonId || '').trim();
+			const emp = safeArray(employees).find((e) => String(e?.id || '') === empId) || null;
+			if (!emp) {
+				detailTitle.textContent = 'まずは上の表から社員を選択してください。';
+				detailSummary.innerHTML = '';
+				detailRows.innerHTML = '';
+				detailEmpty.hidden = true;
+				return;
+			}
+			// フィルタ条件に一致しない社員は表示しない
+			if (!applyFiltersToEmployee(emp)) {
+				state.adminSelectedPersonId = '';
+				detailTitle.textContent = 'まずは上の表から社員を選択してください。';
+				detailSummary.innerHTML = '';
+				detailRows.innerHTML = '';
+				detailEmpty.hidden = true;
 				return;
 			}
 
-			try {
-				if (state.analytics && state.analytics.chart) {
-					state.analytics.chart.destroy();
-					state.analytics.chart = null;
+			const all = safeArray(articles)
+				.slice()
+				.sort((a, b) => parseISOToMs(String(b?.date || '1970-01-01')) - parseISOToMs(String(a?.date || '1970-01-01')));
+
+			const agg = aggregatePersonAcrossArticles(emp, all);
+			detailTitle.textContent = `${String(emp?.name || '—')}（${String(emp?.dept || '—')}）の全記事ステータス（デモ）`;
+			detailSummary.innerHTML = `
+				<div class="kv-row"><span class="kv-k">記事数</span><span class="kv-v">${agg.count}</span></div>
+				<div class="kv-row"><span class="kv-k">未読</span><span class="kv-v">${agg.unread}</span></div>
+				<div class="kv-row"><span class="kv-k">既読率</span><span class="kv-v">${agg.readRate}%</span></div>
+				<div class="kv-row"><span class="kv-k">平均網羅率</span><span class="kv-v">${agg.avgReach}%</span></div>
+				<div class="kv-row"><span class="kv-k">平均閲覧</span><span class="kv-v">${agg.avgSeconds}秒</span></div>
+				<div class="kv-row"><span class="kv-k">合計閲覧</span><span class="kv-v">${Math.round(agg.totalSeconds / 60)}分</span></div>
+			`.trim();
+			detailRows.innerHTML = all
+				.map((a) => {
+					const m = pseudoPersonArticleMetrics(emp, a);
+					const title = String(a?.title || '—').replace(/^\[DUMMY\]\s*/i, '');
+					const cls = m.status === '読了' ? 'done' : m.status === '既読' ? 'read' : 'unread';
+					return `
+						<tr>
+							<td title="${escapeHtml(title)}">${escapeHtml(title)}</td>
+							<td class="num"><span class="status-pill ${cls}">${escapeHtml(m.status)}</span></td>
+							<td class="num">${m.seconds}秒</td>
+							<td class="num">${m.reach}%</td>
+						</tr>
+					`.trim();
+				})
+				.join('');
+
+			detailEmpty.hidden = all.length > 0;
+			if (!all.length) detailRows.innerHTML = '';
+		}
+
+		renderUsagePersonDetail();
+
+		if (!root._boundAdminUsageFilters) {
+			root._boundAdminUsageFilters = true;
+			root.addEventListener('change', (e) => {
+				const t = e.target;
+				if (!(t instanceof HTMLElement)) return;
+				if (t === deptSel) state.adminPersonFilters.dept = String(deptSel.value || '');
+				if (t === typeSel) state.adminPersonFilters.type = String(typeSel.value || '');
+				if (t === articleTypeSel) state.adminPersonFilters.articleType = String(articleTypeSel.value || '');
+				if (t === tempBandSel) state.adminPersonFilters.tempBand = String(tempBandSel.value || '');
+				renderAdminUsage();
+			});
+			resetBtn.addEventListener('click', () => {
+				state.adminPersonFilters = { dept: '', type: '', articleType: '', tempBand: '' };
+				syncUsageFilterControlsFromState();
+				renderAdminUsage();
+			});
+		}
+
+		if (!root._boundAdminUsageDetail) {
+			root._boundAdminUsageDetail = true;
+			root.addEventListener('click', (e) => {
+				const t = e.target instanceof Element ? e.target : e.target && e.target.parentElement ? e.target.parentElement : null;
+				const tr = t && t.closest ? t.closest('#usageMemberRows tr[data-emp-id]') : null;
+				if (!tr) return;
+				const id = String(tr.getAttribute('data-emp-id') || '').trim();
+				if (!id) return;
+				state.adminSelectedPersonId = id;
+				setRoute('admin-person-view');
+			});
+		}
+
+	}
+
+	function renderAdminPersonView() {
+		const root = document.querySelector('.route[data-route="admin-person-view"]');
+		if (!root) return;
+		const mountEl = document.getElementById('adminPersonViewApp');
+		if (!mountEl) return;
+
+		// React が読み込めない環境でも壊れないようにフォールバック
+		if (!window.React || !window.ReactDOM) {
+			mountEl.innerHTML = '<div class="panel"><div class="panel-head"><h3 class="panel-title">社員詳細（分析ダッシュボード）</h3><p class="panel-sub">React が利用できないため、表示できません（デモ）。</p></div></div>';
+			return;
+		}
+
+		const empId = String(state.adminSelectedPersonId || '').trim();
+		const emp = safeArray(employees).find((e) => String(e?.id || '') === empId) || null;
+		mountAdminPersonViewReact(mountEl, emp);
+	}
+
+	function mountAdminPersonViewReact(mountEl, employee) {
+		const React = window.React;
+		const ReactDOM = window.ReactDOM;
+		const h = React.createElement;
+
+		if (!state.personViewReact) state.personViewReact = { root: null };
+		if (!state.personViewReact.root) {
+			if (typeof ReactDOM.createRoot === 'function') {
+				state.personViewReact.root = ReactDOM.createRoot(mountEl);
+			} else {
+				state.personViewReact.root = { render: (node) => ReactDOM.render(node, mountEl) };
+			}
+		}
+
+		// --------------------
+		// ダミーイベントログ生成（実装例）
+		// --------------------
+		function clamp01(v) {
+			return Math.max(0, Math.min(1, v));
+		}
+
+		function startOfDayMs(ms) {
+			const d = new Date(ms);
+			d.setHours(0, 0, 0, 0);
+			return d.getTime();
+		}
+
+		function dateKey(ms) {
+			const d = new Date(ms);
+			const y = d.getFullYear();
+			const m = String(d.getMonth() + 1).padStart(2, '0');
+			const day = String(d.getDate()).padStart(2, '0');
+			return `${y}-${m}-${day}`;
+		}
+
+		function rangeFromPreset(preset) {
+			const now = Date.now();
+			const today = startOfDayMs(now);
+			if (preset === 'week') {
+				return { fromMs: today - 6 * 24 * 60 * 60 * 1000, toMs: today + (24 * 60 * 60 * 1000 - 1) };
+			}
+			// month (default): 30日
+			return { fromMs: today - 29 * 24 * 60 * 60 * 1000, toMs: today + (24 * 60 * 60 * 1000 - 1) };
+		}
+
+		function ensurePersonViewFilters() {
+			if (!state.personViewFilters) {
+				state.personViewFilters = {
+					period: 'month',
+					from: '',
+					to: '',
+					category: '',
+				};
+			}
+			return state.personViewFilters;
+		}
+
+		function computeRange(filters) {
+			if (filters.period === 'custom' && filters.from && filters.to) {
+				const fromMs = parseISOToMs(String(filters.from));
+				const toMs0 = parseISOToMs(String(filters.to));
+				const toMs = toMs0 + (24 * 60 * 60 * 1000 - 1);
+				if (Number.isFinite(fromMs) && Number.isFinite(toMs0)) return { fromMs, toMs };
+			}
+			return rangeFromPreset(filters.period === 'week' ? 'week' : 'month');
+		}
+
+		function deliveredArticlesInRange(allArticles, fromMs, toMs, category) {
+			return safeArray(allArticles)
+				.filter((a) => {
+					const t = parseISOToMs(String(a?.date || '1970-01-01'));
+					if (!Number.isFinite(t)) return false;
+					if (t < fromMs || t > toMs) return false;
+					if (category && String(a?.category || '') !== category) return false;
+					return true;
+				})
+				.slice()
+				.sort((a, b) => parseISOToMs(String(b?.date || '1970-01-01')) - parseISOToMs(String(a?.date || '1970-01-01')));
+		}
+
+		function makeSectionsForArticle(article, sectionCount = 6) {
+			const title = String(article?.title || '—').replace(/^\[DUMMY\]\s*/i, '');
+			const seed = hashStringToInt(String(article?.id || title));
+			const out = [];
+			const starts = [0, 15, 30, 50, 70, 85, 95];
+			for (let i = 0; i < Math.max(3, sectionCount); i++) {
+				const idx = Math.min(i, starts.length - 1);
+				const reachFrom = starts[idx];
+				const label = `セクション${i + 1}`;
+				out.push({
+					id: `h2_${seed}_${i}`,
+					title: `${label}（${title.slice(0, 8)}${title.length > 8 ? '…' : ''}）`,
+					reachFrom,
+				});
+			}
+			return out;
+		}
+
+		// 仕様のイベントログ例を踏まえたダミーログ
+		function buildDummyEventLog({ emp, delivered, fromMs, toMs }) {
+			const events = [];
+			const dayMs = 24 * 60 * 60 * 1000;
+			const dayCount = Math.max(1, Math.floor((toMs - fromMs) / dayMs) + 1);
+			safeArray(delivered).forEach((a) => {
+				const aid = String(a?.id || a?.slug || a?.title || '');
+				const base = pseudoPersonArticleMetrics(emp, a);
+				// open は reach が一定以上なら発生する前提（デモ）
+				const opened = base.reach >= 10;
+				const seed = hashStringToInt(`${String(emp?.id || emp?.employeeNo || emp?.name || '')}::${aid}`);
+				const sessions = opened ? (1 + (seededRand01(seed + 99) > 0.72 ? 1 : 0) + (seededRand01(seed + 199) > 0.88 ? 1 : 0)) : 0;
+				for (let s = 0; s < sessions; s++) {
+					const dayOffset = Math.floor(seededRand01(seed + 500 + s * 13) * dayCount);
+					const baseDay = fromMs + dayOffset * dayMs;
+					const ts = baseDay + Math.floor(seededRand01(seed + 700 + s * 19) * (dayMs - 1));
+					const reachJitter = (seededRand01(seed + 900 + s * 23) - 0.5) * 18;
+					const secJitter = (seededRand01(seed + 1200 + s * 29) - 0.5) * 22;
+					const maxReach = clamp(Math.round(base.reach + reachJitter), 0, 100);
+					const activeSeconds = clamp(Math.round(base.seconds + secJitter), 4, 520);
+
+					events.push({ type: 'article_open', ts, articleId: aid, category: String(a?.category || ''), value: 1 });
+					events.push({ type: 'active_time', ts: ts + 800, articleId: aid, seconds: activeSeconds });
+					events.push({ type: 'scroll_reach', ts: ts + 1200, articleId: aid, reach: maxReach });
+
+					const sections = makeSectionsForArticle(a);
+					const reached = sections.filter((sec) => maxReach >= sec.reachFrom);
+					const reachedN = Math.max(1, reached.length);
+					let remaining = activeSeconds;
+					reached.forEach((sec, idx) => {
+						const w = 0.7 + seededRand01(seed + 1500 + s * 31 + idx * 7) * 0.9;
+						const alloc = idx === reached.length - 1 ? remaining : Math.max(2, Math.round((activeSeconds / reachedN) * w));
+						remaining = Math.max(0, remaining - alloc);
+						events.push({ type: 'section_view', ts: ts + 1600 + idx * 180, articleId: aid, sectionId: sec.id, sectionTitle: sec.title, seconds: alloc, reachFrom: sec.reachFrom });
+					});
 				}
-			} catch {
-				// ignore
+			});
+			return events;
+		}
+
+		function summarizeFromEventLog({ emp, delivered, events, fromMs, toMs }) {
+			const deliveredIds = new Set(safeArray(delivered).map((a) => String(a?.id || a?.slug || a?.title || '')));
+			const byArticle = new Map();
+			events.forEach((ev) => {
+				const aid = String(ev.articleId || '').trim();
+				if (!aid || !deliveredIds.has(aid)) return;
+				if (!byArticle.has(aid)) byArticle.set(aid, { opens: 0, maxReach: 0, activeSeconds: 0, sectionSeconds: new Map(), sessions: 0, category: ev.category || '' });
+				const st = byArticle.get(aid);
+				if (ev.type === 'article_open') {
+					st.opens += 1;
+					st.sessions += 1;
+				}
+				if (ev.type === 'scroll_reach') st.maxReach = Math.max(st.maxReach, Number(ev.reach) || 0);
+				if (ev.type === 'active_time') st.activeSeconds += Number(ev.seconds) || 0;
+				if (ev.type === 'section_view') {
+					const sid = String(ev.sectionId || '');
+					const cur = st.sectionSeconds.get(sid) || 0;
+					st.sectionSeconds.set(sid, cur + (Number(ev.seconds) || 0));
+				}
+			});
+
+			const deliveredCount = safeArray(delivered).length;
+			let openedCount = 0;
+			let engagedCount = 0;
+			let totalActiveForAvg = 0;
+			let activeN = 0;
+
+			const perArticleRows = safeArray(delivered).map((a) => {
+				const aid = String(a?.id || a?.slug || a?.title || '');
+				const st = byArticle.get(aid) || { opens: 0, maxReach: 0, activeSeconds: 0, sessions: 0 };
+				const reach01 = st.opens > 0 ? 1 : 0;
+				const avgActive = st.opens > 0 ? Math.round(st.activeSeconds / Math.max(1, st.opens)) : 0;
+				const engaged01 = st.opens > 0 && (st.maxReach >= 80 || avgActive >= 30) ? 1 : 0;
+				const gap = reach01 - engaged01;
+				if (reach01) openedCount += 1;
+				if (engaged01) engagedCount += 1;
+				if (reach01) {
+					totalActiveForAvg += avgActive;
+					activeN += 1;
+				}
+				return {
+					id: aid,
+					title: String(a?.title || '—').replace(/^\[DUMMY\]\s*/i, ''),
+					category: String(a?.category || '—'),
+					reach01,
+					engaged01,
+					avgActive,
+					maxReach: Math.round(st.maxReach),
+					gap,
+					dt: parseISOToMs(String(a?.date || '1970-01-01')),
+				};
+			});
+
+			const reachRate = deliveredCount ? Math.round((openedCount / deliveredCount) * 100) : 0;
+			const engagementRate = deliveredCount ? Math.round((engagedCount / deliveredCount) * 100) : 0;
+			const gapRate = reachRate - engagementRate;
+			const avgActiveSeconds = activeN ? Math.round(totalActiveForAvg / activeN) : 0;
+
+			// UI1: カテゴリ別 reach/engagement
+			const categories = Array.from(
+				new Set(
+					safeArray(delivered)
+						.map((a) => String(a?.category || '').trim())
+						.filter(Boolean)
+				)
+			);
+			const categorySeries = categories.map((cat) => {
+				const sub = perArticleRows.filter((r) => r.category === cat);
+				const n = Math.max(1, sub.length);
+				const r = Math.round((sub.reduce((s, x) => s + x.reach01, 0) / n) * 100);
+				const e = Math.round((sub.reduce((s, x) => s + x.engaged01, 0) / n) * 100);
+				return { category: cat, reach: r, engagement: e, gap: r - e, count: sub.length };
+			});
+
+			// UI2: 時系列（日次） open / deep
+			const dayMs = 24 * 60 * 60 * 1000;
+			const days = [];
+			for (let t = startOfDayMs(fromMs); t <= startOfDayMs(toMs); t += dayMs) days.push(t);
+			const openByDay = new Map();
+			const deepByDay = new Map();
+			events.forEach((ev) => {
+				if (ev.type !== 'article_open') return;
+				const d = dateKey(ev.ts);
+				openByDay.set(d, (openByDay.get(d) || 0) + 1);
+			});
+			// deep: scroll_reach >=80 or active_time>=30 を満たすセッション数として数える
+			// 簡易: 同日内の scroll_reach / active_time を合算して deep 判定（デモ）
+			const sessionKey = (ev) => `${dateKey(ev.ts)}::${String(ev.articleId || '')}`;
+			const ses = new Map();
+			events.forEach((ev) => {
+				const k = sessionKey(ev);
+				if (!ses.has(k)) ses.set(k, { maxReach: 0, sec: 0 });
+				const s0 = ses.get(k);
+				if (ev.type === 'scroll_reach') s0.maxReach = Math.max(s0.maxReach, Number(ev.reach) || 0);
+				if (ev.type === 'active_time') s0.sec += Number(ev.seconds) || 0;
+			});
+			Array.from(ses.entries()).forEach(([k, v]) => {
+				const d = k.split('::')[0];
+				if (v.maxReach >= 80 || v.sec >= 30) deepByDay.set(d, (deepByDay.get(d) || 0) + 1);
+			});
+			const timeSeries = days.map((t) => {
+				const k = dateKey(t);
+				return { day: k, open: openByDay.get(k) || 0, deep: deepByDay.get(k) || 0 };
+			});
+
+			// UI3: 読み方タイプ
+			const typeCounts = { '熟読型': 0, '速読型': 0, '斜め読み': 0, '開いただけ': 0, '未読': 0 };
+			perArticleRows.forEach((r) => {
+				if (!r.reach01) {
+					typeCounts['未読'] += 1;
+					return;
+				}
+				if (r.maxReach >= 80) {
+					if (r.avgActive >= 60) typeCounts['熟読型'] += 1;
+					else typeCounts['速読型'] += 1;
+					return;
+				}
+				if (r.maxReach >= 20 && r.maxReach <= 79) {
+					typeCounts['斜め読み'] += 1;
+					return;
+				}
+				typeCounts['開いただけ'] += 1;
+			});
+
+			return {
+				kpis: { reachRate, engagementRate, gapRate, avgActiveSeconds, deliveredCount },
+				categorySeries,
+				timeSeries,
+				typeCounts,
+				perArticleRows,
+				categories,
+			};
+		}
+
+		function HeatColor(rate) {
+			// 既存のヒートマップ配色ロジックを流用
+			return heatmapColorByRate(clamp(Math.round(rate), 0, 100));
+		}
+
+		function ChartCanvas(props) {
+			const { type, data, options, height = 220 } = props;
+			const ref = React.useRef(null);
+			const chartRef = React.useRef(null);
+			React.useEffect(() => {
+				if (!window.Chart || !ref.current) return;
+				if (chartRef.current && typeof chartRef.current.destroy === 'function') {
+					try { chartRef.current.destroy(); } catch (_) {}
+				}
+				chartRef.current = new window.Chart(ref.current, { type, data, options });
+				return () => {
+					if (chartRef.current && typeof chartRef.current.destroy === 'function') {
+						try { chartRef.current.destroy(); } catch (_) {}
+					}
+				};
+			}, [type, JSON.stringify(data), JSON.stringify(options)]);
+			return h('canvas', { ref, height });
+		}
+
+		function MiniBar({ value, max = 100, tone = 'blue' }) {
+			const p = max > 0 ? clamp01(value / max) : 0;
+			const fill = tone === 'orange'
+				? 'rgba(255, 168, 0, 0.78)'
+				: tone === 'green'
+					? 'rgba(46, 170, 101, 0.78)'
+					: 'rgba(42, 127, 255, 0.78)';
+			return h('div', { className: 'mini-bar', title: String(value) }, h('span', { style: { width: `${Math.round(p * 100)}%`, background: fill } }));
+		}
+
+		function App({ emp }) {
+			const init = ensurePersonViewFilters();
+			const [period, setPeriod] = React.useState(init.period);
+			const [from, setFrom] = React.useState(init.from);
+			const [to, setTo] = React.useState(init.to);
+			const [category, setCategory] = React.useState(init.category);
+			const [sortKey, setSortKey] = React.useState('engagedAsc');
+			const [heatArticleId, setHeatArticleId] = React.useState('');
+
+			React.useEffect(() => {
+				state.personViewFilters = { period, from, to, category };
+			}, [period, from, to, category]);
+
+			if (!emp) {
+				return h(
+					'div',
+					{ className: 'panel' },
+					h('div', { className: 'panel-head' }, h('h3', { className: 'panel-title' }, '社員が未選択'), h('p', { className: 'panel-sub' }, '利用傾向の社員一覧から選択してください（デモ）。'))
+				);
 			}
 
-			// eslint-disable-next-line no-new
-			state.analytics.chart = new window.Chart(ctx, {
-				type: 'doughnut',
+			const filters = { period, from, to, category };
+			const { fromMs, toMs } = computeRange(filters);
+			const delivered = deliveredArticlesInRange(articles, fromMs, toMs, category);
+			const events = React.useMemo(() => buildDummyEventLog({ emp, delivered, fromMs, toMs }), [String(emp?.id || ''), delivered.length, fromMs, toMs]);
+			const summary = React.useMemo(() => summarizeFromEventLog({ emp, delivered, events, fromMs, toMs }), [String(emp?.id || ''), delivered.length, events.length, fromMs, toMs]);
+
+			const allCats = Array.from(
+				new Set(
+					safeArray(articles)
+						.map((a) => String(a?.category || '').trim())
+						.filter(Boolean)
+				)
+			);
+
+			const k = summary.kpis;
+
+			// UI1: カテゴリ別（横棒）
+			const catLabels = summary.categorySeries.map((x) => x.category);
+			const catReach = summary.categorySeries.map((x) => x.reach);
+			const catEng = summary.categorySeries.map((x) => x.engagement);
+			const catOptions = {
+				indexAxis: 'y',
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: { x: { min: 0, max: 100, ticks: { stepSize: 20 } } },
+				plugins: { legend: { position: 'bottom' }, tooltip: { enabled: true } },
+			};
+
+			// UI2: 時系列（折れ線）
+			const tsLabels = summary.timeSeries.map((x) => x.day.slice(5));
+			const tsOpen = summary.timeSeries.map((x) => x.open);
+			const tsDeep = summary.timeSeries.map((x) => x.deep);
+			const lineOptions = {
+				responsive: true,
+				maintainAspectRatio: false,
+				plugins: { legend: { position: 'bottom' }, tooltip: { enabled: true } },
+				scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+			};
+
+			// UI3: 読み方タイプ（円）
+			const typeLabels = Object.keys(summary.typeCounts);
+			const typeData = typeLabels.map((x) => summary.typeCounts[x]);
+			const typeOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } };
+
+			// UI4: テーブル（ソート）
+			const rowsSorted = summary.perArticleRows
+				.slice()
+				.sort((a, b) => {
+					if (sortKey === 'engagedAsc') return a.engaged01 - b.engaged01 || a.maxReach - b.maxReach;
+					if (sortKey === 'secondsAsc') return a.avgActive - b.avgActive;
+					if (sortKey === 'gapDesc') return b.gap - a.gap || a.engaged01 - b.engaged01;
+					return b.dt - a.dt;
+				});
+
+			// UI5: 離脱ポイント（セクション熱）: 記事選択
+			const heatCandidates = rowsSorted.filter((r) => r.reach01).slice(0, 12);
+			const heatId = heatArticleId || (heatCandidates[0]?.id || (rowsSorted[0]?.id || ''));
+			React.useEffect(() => {
+				if (!heatArticleId && heatId) setHeatArticleId(heatId);
+			}, [heatId]);
+
+			const heatArticle = safeArray(delivered).find((a) => String(a?.id || a?.slug || a?.title || '') === heatId) || null;
+			const heatSections = heatArticle ? makeSectionsForArticle(heatArticle) : [];
+			const heatRows = heatSections.map((sec) => {
+				// セッション数ベースで到達率を近似（section_view の出現回数/ open回数）
+				const openN = events.filter((e) => e.type === 'article_open' && String(e.articleId) === heatId).length;
+				const secEv = events.filter((e) => e.type === 'section_view' && String(e.articleId) === heatId && String(e.sectionId) === sec.id);
+				const reachRate = openN ? Math.round((secEv.length / openN) * 100) : 0;
+				const avgSec = secEv.length ? Math.round(secEv.reduce((s, x) => s + (Number(x.seconds) || 0), 0) / secEv.length) : 0;
+				return { id: sec.id, title: sec.title, reachRate, avgSec };
+			});
+
+			return h(
+				'div',
+				null,
+				// 上: 基本情報 + KPI
+				h(
+					'div',
+					{ className: 'panel' },
+					h(
+						'div',
+						{ className: 'panel-head' },
+						h('h3', { className: 'panel-title' }, `${String(emp?.name || '—')}さんの分析画面`),
+						h('p', { className: 'panel-sub' }, `部署: ${String(emp?.dept || '—')} / 配信対象: ${k.deliveredCount}記事（期間内）`)
+					),
+					h(
+						'div',
+						{ className: 'section-tools', style: { marginTop: 0 } },
+						h(
+							'div',
+							{ className: 'field' },
+							h('label', { className: 'field-label' }, '期間'),
+							h(
+								'select',
+								{ className: 'select', value: period, onChange: (e) => setPeriod(String(e.target.value || 'month')) },
+								h('option', { value: 'week' }, '今週（7日）'),
+								h('option', { value: 'month' }, '今月（30日）'),
+								h('option', { value: 'custom' }, '任意')
+							)
+						),
+						period === 'custom'
+							? h(
+								React.Fragment,
+								null,
+								h('div', { className: 'field' }, h('label', { className: 'field-label' }, 'From'), h('input', { className: 'input', type: 'date', value: from, onChange: (e) => setFrom(String(e.target.value || '')) })),
+								h('div', { className: 'field' }, h('label', { className: 'field-label' }, 'To'), h('input', { className: 'input', type: 'date', value: to, onChange: (e) => setTo(String(e.target.value || '')) }))
+							)
+							: null,
+						h(
+							'div',
+							{ className: 'field' },
+							h('label', { className: 'field-label' }, 'カテゴリ'),
+							h(
+								'select',
+								{ className: 'select', value: category, onChange: (e) => setCategory(String(e.target.value || '')) },
+								h('option', { value: '' }, '（すべて）'),
+								...allCats.map((c) => h('option', { key: c, value: c }, c))
+							)
+						),
+						h(
+							'div',
+							{ className: 'field', style: { alignSelf: 'end' } },
+							h(
+								'button',
+								{
+									className: 'btn btn-ghost',
+									type: 'button',
+									onClick: () => {
+										setPeriod('month');
+										setFrom('');
+										setTo('');
+										setCategory('');
+									},
+								},
+								'クリア'
+							)
+						)
+					),
+					h(
+						'div',
+						{ className: 'analytics-kpis', role: 'list', style: { marginTop: '12px' } },
+						h('div', { className: 'stat', role: 'listitem' }, h('div', { className: 'stat-label' }, 'Reach'), h('div', { className: 'stat-val' }, h('span', null, `${k.reachRate}`), h('span', { className: 'stat-unit' }, '%')), h('div', { className: 'stat-sub' }, '開いた割合')),
+						h('div', { className: 'stat', role: 'listitem' }, h('div', { className: 'stat-label' }, 'Engagement'), h('div', { className: 'stat-val' }, h('span', null, `${k.engagementRate}`), h('span', { className: 'stat-unit' }, '%')), h('div', { className: 'stat-sub' }, '80%到達 or 30秒')),
+						h('div', { className: 'stat', role: 'listitem' }, h('div', { className: 'stat-label' }, 'Gap'), h('div', { className: 'stat-val' }, h('span', null, `${k.gapRate}`), h('span', { className: 'stat-unit' }, 'pt')), h('div', { className: 'stat-sub' }, '届いたが読まれない')),
+						h('div', { className: 'stat', role: 'listitem' }, h('div', { className: 'stat-label' }, '平均滞在'), h('div', { className: 'stat-val' }, h('span', null, `${k.avgActiveSeconds}`), h('span', { className: 'stat-unit' }, '秒')), h('div', { className: 'stat-sub' }, 'active_time平均'))
+					)
+				),
+
+				// 中: チャート（1,2,3）
+				h(
+					'div',
+					{ className: 'analytics-grid', style: { marginTop: '14px' } },
+					h(
+						'div',
+						{ className: 'panel' },
+						h('div', { className: 'panel-head' }, h('h3', { className: 'panel-title' }, '1) カテゴリ別：閲覧率×網羅率'), h('p', { className: 'panel-sub' }, '横棒（Reach/Engagement）＋Gap（デモ）')),
+						window.Chart
+							? h(ChartCanvas, {
+								type: 'bar',
+								data: {
+									labels: catLabels,
+									datasets: [
+										{ label: 'Reach', data: catReach, backgroundColor: 'rgba(42, 127, 255, 0.22)', borderColor: 'rgba(42, 127, 255, 0.88)', borderWidth: 1 },
+										{ label: 'Engagement', data: catEng, backgroundColor: 'rgba(46, 170, 101, 0.22)', borderColor: 'rgba(46, 170, 101, 0.88)', borderWidth: 1 },
+									],
+								},
+								options: catOptions,
+								height: 260,
+							})
+							: h('div', { className: 'mini-note' }, 'Chart.js が利用できないため、数値表示で代替します（デモ）。'),
+						h(
+							'div',
+							{ className: 'table-wrap', style: { marginTop: '10px' } },
+							h(
+								'table',
+								{ className: 'table', 'aria-label': 'カテゴリ別 サマリー' },
+								h('thead', null, h('tr', null, h('th', null, 'カテゴリ'), h('th', { className: 'num' }, 'Reach'), h('th', { className: 'num' }, 'Engagement'), h('th', { className: 'num' }, 'Gap'))),
+								h(
+									'tbody',
+									null,
+									summary.categorySeries.map((x) =>
+										h('tr', { key: x.category }, h('td', null, x.category), h('td', { className: 'num' }, `${x.reach}%`), h('td', { className: 'num' }, `${x.engagement}%`), h('td', { className: 'num' }, `${x.gap}pt`))
+									)
+								)
+							)
+						)
+					),
+
+					h(
+						'div',
+						{ className: 'panel' },
+						h('div', { className: 'panel-head' }, h('h3', { className: 'panel-title' }, '2) 時系列推移'), h('p', { className: 'panel-sub' }, '日次 open回数 / deep_read回数（デモ）')),
+						window.Chart
+							? h(ChartCanvas, {
+								type: 'line',
+								data: {
+									labels: tsLabels,
+									datasets: [
+										{ label: 'open', data: tsOpen, borderColor: 'rgba(42, 127, 255, 0.92)', backgroundColor: 'rgba(42, 127, 255, 0.10)', fill: true, tension: 0.35, pointRadius: 2 },
+										{ label: 'deep_read', data: tsDeep, borderColor: 'rgba(46, 170, 101, 0.92)', backgroundColor: 'rgba(46, 170, 101, 0.10)', fill: true, tension: 0.35, pointRadius: 2 },
+									],
+								},
+								options: lineOptions,
+								height: 240,
+							})
+							: h('div', { className: 'mini-note' }, `open: ${tsOpen.join(' / ')} / deep: ${tsDeep.join(' / ')}`)
+					),
+
+					h(
+						'div',
+						{ className: 'panel' },
+						h('div', { className: 'panel-head' }, h('h3', { className: 'panel-title' }, '3) 読み方タイプ分類'), h('p', { className: 'panel-sub' }, '熟読/速読/斜め読み/開いただけ/未読（デモ）')),
+						window.Chart
+							? h(ChartCanvas, {
+								type: 'doughnut',
+								data: {
+									labels: typeLabels,
+									datasets: [
+										{
+											data: typeData,
+											backgroundColor: [
+												'rgba(46, 170, 101, 0.80)',
+												'rgba(42, 127, 255, 0.80)',
+												'rgba(255, 168, 0, 0.78)',
+												'rgba(255, 168, 0, 0.38)',
+												'rgba(0, 0, 0, 0.12)',
+											],
+											borderWidth: 0,
+										},
+									],
+								},
+								options: typeOptions,
+								height: 240,
+							})
+							: h('div', { className: 'mini-note' }, typeLabels.map((k) => `${k}:${summary.typeCounts[k]}`).join(' / '))
+					)
+				)
+				,
+
+				// 下: テーブル（4）とヒートマップ（5）
+				h(
+					'div',
+					{ className: 'panel', style: { marginTop: '14px' } },
+					h('div', { className: 'panel-head' }, h('h3', { className: 'panel-title' }, '4) 記事別ランキング表'), h('p', { className: 'panel-sub' }, 'Reach/Engagement/平均滞在/最終到達/GAP（デモ）')),
+					h(
+						'div',
+						{ className: 'section-tools', style: { marginTop: 0 } },
+						h(
+							'div',
+							{ className: 'field' },
+							h('label', { className: 'field-label' }, 'ソート'),
+							h(
+								'select',
+								{ className: 'select', value: sortKey, onChange: (e) => setSortKey(String(e.target.value || 'engagedAsc')) },
+								h('option', { value: 'engagedAsc' }, 'Engagement 低い順'),
+								h('option', { value: 'secondsAsc' }, '滞在短い順'),
+								h('option', { value: 'gapDesc' }, 'Gap 大きい順'),
+								h('option', { value: 'recent' }, '新しい順')
+							)
+						)
+					),
+					h(
+						'div',
+						{ className: 'table-wrap' },
+						h(
+							'table',
+							{ className: 'table', 'aria-label': '記事別ランキング' },
+							h(
+								'thead',
+								null,
+								h(
+									'tr',
+									null,
+									h('th', null, '記事タイトル'),
+									h('th', null, 'カテゴリ'),
+									h('th', { className: 'num' }, 'Reach'),
+									h('th', { className: 'num' }, 'Engagement'),
+									h('th', { className: 'num' }, '平均滞在'),
+									h('th', { className: 'num' }, '最終到達'),
+									h('th', { className: 'num' }, 'Gap')
+								)
+							),
+							h(
+								'tbody',
+								null,
+								rowsSorted.slice(0, 18).map((r) =>
+									h(
+									'tr',
+									{ key: r.id },
+									h('td', { title: r.title }, r.title),
+									h('td', null, r.category),
+									h('td', { className: 'num' }, r.reach01 ? '1' : '0'),
+									h('td', { className: 'num' }, r.engaged01 ? '1' : '0'),
+									h('td', { className: 'num' }, h('div', null, `${r.avgActive}秒`, h(MiniBar, { value: r.avgActive, max: 120, tone: 'orange' }))),
+									h('td', { className: 'num' }, h('div', null, `${r.maxReach}%`, h(MiniBar, { value: r.maxReach, max: 100, tone: 'blue' }))),
+									h('td', { className: 'num' }, r.gap)
+								)
+								)
+							)
+						)
+					)
+				),
+
+				h(
+					'div',
+					{ className: 'panel', style: { marginTop: '14px' } },
+					h('div', { className: 'panel-head' }, h('h3', { className: 'panel-title' }, '5) 離脱ポイント（セクション別ヒートマップ）'), h('p', { className: 'panel-sub' }, 'h2単位の到達率と滞在秒（デモ）')),
+					h(
+						'div',
+						{ className: 'section-tools', style: { marginTop: 0 } },
+						h(
+							'div',
+							{ className: 'field' },
+							h('label', { className: 'field-label' }, '対象記事'),
+							h(
+								'select',
+								{ className: 'select', value: heatId, onChange: (e) => setHeatArticleId(String(e.target.value || '')) },
+								heatCandidates.map((r) => h('option', { key: r.id, value: r.id }, r.title))
+							)
+						)
+					),
+					h(
+						'div',
+						{ className: 'table-wrap' },
+						h(
+							'table',
+							{ className: 'table', 'aria-label': 'セクション別ヒート' },
+							h('thead', null, h('tr', null, h('th', null, 'セクション'), h('th', { className: 'num' }, '到達率'), h('th', { className: 'num' }, '平均滞在'))),
+							h(
+								'tbody',
+								null,
+								heatRows.map((r) => {
+									const c1 = HeatColor(r.reachRate);
+									const c2 = HeatColor(clamp(Math.round((r.avgSec / 120) * 100), 0, 100));
+									return h(
+										'tr',
+										{ key: r.id },
+										h('td', { title: r.title }, r.title),
+										h('td', { className: 'num', style: { background: c1.bg, color: c1.fg } }, `${r.reachRate}%`),
+										h('td', { className: 'num', style: { background: c2.bg, color: c2.fg } }, `${r.avgSec}秒`)
+									);
+								})
+							)
+						)
+					)
+				)
+			);
+		}
+
+		state.personViewReact.root.render(h(App, { emp: employee }));
+	}
+
+	function renderAdminAnalytics() {
+		const root = document.querySelector('.route[data-route="admin-analytics"]');
+		if (!root) return;
+		ensureAnalyticsCharts();
+
+		const metricSel = document.getElementById('pulseMetric');
+		const pulseCanvas = document.getElementById('pulseChart');
+		const pulseFallback = document.getElementById('pulseChartFallback');
+		const kpi1Label = document.getElementById('pulseKpi1Label');
+		const kpi1 = document.getElementById('pulseKpi1');
+		const kpi1Unit = document.getElementById('pulseKpi1Unit');
+		const wowEl = document.getElementById('pulseWoW');
+		const reactTotalEl = document.getElementById('pulseReactTotal');
+		const heatmapGrid = document.getElementById('heatmapGrid');
+		const heatmapDetailsTitle = document.getElementById('heatmapDetailsTitle');
+		const heatmapDetailsRows = document.getElementById('heatmapDetailsRows');
+		const heatmapDetailsEmpty = document.getElementById('heatmapDetailsEmpty');
+		const followCards = document.getElementById('followUpCards');
+		if (!metricSel || !pulseCanvas || !kpi1Label || !kpi1 || !kpi1Unit || !wowEl || !reactTotalEl || !heatmapGrid || !heatmapDetailsTitle || !heatmapDetailsRows || !heatmapDetailsEmpty || !followCards) return;
+
+		const now = Date.now();
+		const dayMs = 24 * 60 * 60 * 1000;
+		const today = new Date(now);
+		today.setHours(0, 0, 0, 0);
+		const todayMs = today.getTime();
+
+		const metric = String(metricSel.value || 'temp');
+		const meta = metricLabel(metric);
+		kpi1Label.textContent = `${meta.label}（7日平均）`;
+		kpi1Unit.textContent = meta.unit;
+
+		// ---- pulse: 過去7日
+		const labels = [];
+		const series = [];
+		for (let i = 6; i >= 0; i--) {
+			const from = todayMs - i * dayMs;
+			const to = from + (dayMs - 1);
+			const dayArticles = periodArticles({ fromMs: from, toMs: to });
+			const v = metricValueForArticles(metric, dayArticles);
+			const d = new Date(from);
+			labels.push(`${d.getMonth() + 1}/${String(d.getDate()).padStart(2, '0')}`);
+			series.push(v);
+		}
+
+		const last7From = todayMs - 6 * dayMs;
+		const last7To = todayMs + (dayMs - 1);
+		const prev7From = todayMs - 13 * dayMs;
+		const prev7To = todayMs - 7 * dayMs + (dayMs - 1);
+		const last7Articles = periodArticles({ fromMs: last7From, toMs: last7To });
+		const prev7Articles = periodArticles({ fromMs: prev7From, toMs: prev7To });
+		const lastAvg = metric === 'reactions'
+			? Math.round(metricValueForArticles(metric, last7Articles) / 7)
+			: metricValueForArticles(metric, last7Articles);
+		const prevAvg = metric === 'reactions'
+			? Math.round(metricValueForArticles(metric, prev7Articles) / 7)
+			: metricValueForArticles(metric, prev7Articles);
+		const wow = lastAvg - prevAvg;
+
+		kpi1.textContent = String(lastAvg);
+		wowEl.textContent = `${wow >= 0 ? '+' : ''}${wow}`;
+		reactTotalEl.textContent = String(Math.round(sumArticleReactions(last7Articles)));
+
+		if (!window.Chart) {
+			if (pulseFallback) {
+				pulseFallback.hidden = false;
+				pulseFallback.textContent = `過去7日 ${meta.label}: ${series.join(' / ')}${meta.unit}`;
+			}
+		} else {
+			destroyAnalyticsChart('pulse');
+			const isPct = metric !== 'reactions';
+			state.analytics.charts.pulse = new window.Chart(pulseCanvas, {
+				type: 'line',
 				data: {
 					labels,
 					datasets: [
 						{
-							label: '社員セグメント',
-							data,
-							backgroundColor: ['rgba(42, 127, 255, 0.35)', 'rgba(11, 76, 207, 0.32)', 'rgba(15, 35, 75, 0.16)'],
-							borderColor: ['rgba(42, 127, 255, 0.90)', 'rgba(11, 76, 207, 0.92)', 'rgba(15, 35, 75, 0.28)'],
-							borderWidth: 1,
+							label: meta.label,
+							data: series,
+							borderColor: 'rgba(42, 127, 255, 0.92)',
+							backgroundColor: 'rgba(42, 127, 255, 0.10)',
+							fill: true,
+							tension: 0.35,
+							pointRadius: 2,
+							pointHoverRadius: 4,
 						},
 					],
 				},
 				options: {
 					responsive: true,
 					maintainAspectRatio: false,
+					scales: {
+						y: isPct ? { min: 0, max: 100, ticks: { stepSize: 20 } } : { beginAtZero: true },
+					},
 					plugins: {
-						legend: { position: 'bottom', labels: { boxWidth: 12, boxHeight: 12 } },
+						legend: { display: false },
 						tooltip: { enabled: true },
 					},
 				},
 			});
+			if (pulseFallback) pulseFallback.hidden = true;
 		}
 
-		// Bottleneck alerts
-		const curDept = deptStatsForPeriod(curArticles);
-		const prevDept = deptStatsForPeriod(prevArticles);
-		const depts = deptList();
-		const alerts = [];
+		if (!metricSel._bound) {
+			metricSel._bound = true;
+			metricSel.addEventListener('change', () => renderAdminAnalytics());
+		}
 
-		depts.forEach((d) => {
-			const curD = curDept.get(d);
-			const prevD = prevDept.get(d);
-			if (!curD) return;
-			if (prevD && Number.isFinite(prevD.views) && curD.views <= prevD.views - 12) {
-				alerts.push({
-					kind: '閲覧率急落',
-					dept: d,
-					msg: `前月比 ${curD.views - prevD.views}%（${prevD.views}% → ${curD.views}%）`,
-					severity: 'high',
-				});
-			}
+		// ---- article heatmap: 部署 × 記事（直近 5-10本）
+		if (!state.analytics.heatmap) state.analytics.heatmap = { selection: null };
+		const recentArticles = safeArray(articles)
+			.slice()
+			.sort((a, b) => parseISOToMs(String(b?.date || '1970-01-01')) - parseISOToMs(String(a?.date || '1970-01-01')))
+			.slice(0, 8);
+		const depts = deptList();
+		const cols = Math.max(1, recentArticles.length);
+		heatmapGrid.style.setProperty('--cols', String(cols));
+
+		const sel = state.analytics.heatmap.selection;
+		let gridHtml = '';
+		gridHtml += `<div class="heatmap-head" aria-label="軸">部署＼記事</div>`;
+		recentArticles.forEach((a) => {
+			const title = String(a?.title || '—');
+			const short = title.replace(/^\[DUMMY\]\s*/i, '').slice(0, 14);
+			gridHtml += `<div class="heatmap-head" title="${escapeHtml(title)}">${escapeHtml(short)}${title.length > 14 ? '…' : ''}</div>`;
 		});
 
-		// Exec message coverage low
-		const important = safeArray(curArticles).filter(isImportantArticle);
-		if (important.length) {
-			depts.forEach((d) => {
-				// 対象部署向け（targeting）を優先し、なければ全社扱いで平均
-				const list = important.filter((a) => {
-					const t = safeArray(a?.targeting?.depts).filter(Boolean);
-					return !t.length || t.includes(d);
-				});
-				if (!list.length) return;
-				const avg = Math.round(list.reduce((s, a) => s + (Number(a.coverage) || 0), 0) / Math.max(1, list.length));
-				if (avg < 55) {
-					alerts.push({
-						kind: '経営メッセージ低到達',
-						dept: d,
-						msg: `重要記事の網羅率平均 ${avg}%`,
-						severity: avg < 45 ? 'high' : 'mid',
-					});
-				}
+		depts.forEach((d) => {
+			gridHtml += `<div class="heatmap-side" title="${escapeHtml(d)}">${escapeHtml(d)}</div>`;
+			recentArticles.forEach((a) => {
+				const rate = pseudoDeptArticleViewRate(d, a);
+				const c = heatmapColorByRate(rate);
+				const isSelected = sel && sel.dept === d && sel.articleId === String(a?.id || '');
+				gridHtml += `
+					<button
+						class="heatmap-cell"
+						type="button"
+						data-dept="${escapeHtml(d)}"
+						data-article-id="${escapeHtml(String(a?.id || ''))}"
+						data-selected="${isSelected ? 'true' : 'false'}"
+						style="background:${c.bg};color:${c.fg}"
+						aria-label="${escapeHtml(d)} × ${escapeHtml(String(a?.title || ''))} 閲覧率 ${rate}%"
+					>
+						${rate}%
+					</button>
+				`.trim();
 			});
+		});
+
+		heatmapGrid.innerHTML = gridHtml;
+		if (!depts.length || !recentArticles.length) {
+			heatmapGrid.innerHTML = `<div class="mini-note" style="padding:10px;">部署または記事データが不足しているため、ヒートマップは集計中です（デモ）。</div>`;
 		}
 
-		alertsEl.innerHTML = '';
-		alerts
-			.slice()
-			.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'high' ? -1 : 1))
-			.slice(0, 8)
-			.forEach((a) => {
-				const li = document.createElement('li');
-				li.className = 'alert';
-				const tone = a.severity === 'high' ? 'hot' : 'warm';
-				li.innerHTML = `
-					<div class="alert-head">
-						<span class="pill ${tone}">${escapeHtml(a.kind)}</span>
-						<span class="muted small">${escapeHtml(a.dept)}</span>
-					</div>
-					<div class="alert-body">${escapeHtml(a.msg)}</div>
-				`;
-				alertsEl.appendChild(li);
-			});
-		if (!alerts.length) {
-			const li = document.createElement('li');
-			li.className = 'alert';
-			li.innerHTML = `<div class="alert-body">いまは大きな急落/低到達の兆候は検出されていません（デモ）。</div>`;
-			alertsEl.appendChild(li);
-		}
-
-		// Heat gap map
-		renderHeatGapMap();
-
-		function renderHeatGapMap() {
-			const depts = deptList();
-			const importantAll = safeArray(articles).filter(isImportantArticle);
-			const cols = importantAll
-				.map((a) => ({
-					id: a.id,
-					title: String(a.title || '（無題）'),
-					importance: importanceScore(a),
-					actual: computeTemp(a),
-				}))
-				.sort((a, b) => (b.importance - b.actual) - (a.importance - a.actual))
-				.slice(0, 3);
-
-			heatGapEl.innerHTML = '';
-			if (!cols.length || !depts.length) {
-				heatGapEl.innerHTML = `<div class="mini-note" style="padding:10px;">重要記事または部署データが不足しているため、マップは集計中です（デモ）。</div>`;
+		function renderHeatmapDetails(nextSel) {
+			const selection = nextSel || state.analytics.heatmap.selection;
+			if (!selection) {
+				heatmapDetailsTitle.textContent = 'マスをクリックすると、「部署 × 記事」を見た社員一覧が表示されます（デモ）。';
+				heatmapDetailsRows.innerHTML = '';
+				heatmapDetailsEmpty.hidden = true;
 				return;
 			}
+			const dept = String(selection.dept || '').trim();
+			const article = recentArticles.find((a) => String(a?.id || '') === String(selection.articleId || '')) || null;
+			const articleTitle = String(article?.title || '—').replace(/^\[DUMMY\]\s*/i, '');
+			const rate = article ? pseudoDeptArticleViewRate(dept, article) : 0;
+			heatmapDetailsTitle.textContent = `${dept} × ${articleTitle}（閲覧率 ${rate}% / デモ）`;
 
-			const head = document.createElement('div');
-			head.className = 'heat-gap-row';
-			head.innerHTML = `
-				<div class="heat-gap-cell"><div class="heat-gap-head">部署</div></div>
-				${cols
-					.map((c) => {
-						const short = c.title.length > 16 ? c.title.slice(0, 16) + '…' : c.title;
-						return `<div class="heat-gap-cell"><div class="heat-gap-head">重要記事</div><div style="font-weight:900;">${escapeHtml(short)}</div></div>`;
-					})
-					.join('')}
+			const members = safeArray(employees).filter((e) => String(e?.dept || '').trim() === dept);
+			const rows = members
+				.map((e) => {
+					const m = pseudoEmployeeReadForCell(e, dept, article, rate);
+					return {
+						name: String(e?.name || '—'),
+						employeeNo: String(e?.employeeNo || ''),
+						seconds: m.seconds,
+						reach: m.reach,
+					};
+				})
+				.sort((a, b) => b.reach - a.reach)
+				.slice(0, 24);
+
+			heatmapDetailsRows.innerHTML = rows
+				.map(
+					(r) => `
+						<tr>
+							<td>${escapeHtml(r.name)}<span class="muted small"> ${escapeHtml(r.employeeNo ? `(${r.employeeNo})` : '')}</span></td>
+							<td class="num">${r.seconds}秒</td>
+							<td class="num">${r.reach}%</td>
+						</tr>
+					`.trim()
+				)
+				.join('');
+
+			heatmapDetailsEmpty.hidden = rows.length > 0;
+			if (!rows.length) {
+				heatmapDetailsRows.innerHTML = '';
+			}
+		}
+
+		renderHeatmapDetails();
+
+		if (!heatmapGrid._bound) {
+			heatmapGrid._bound = true;
+			heatmapGrid.addEventListener('click', (e) => {
+				const btn = e.target && e.target.closest ? e.target.closest('.heatmap-cell') : null;
+				if (!btn) return;
+				const dept = String(btn.getAttribute('data-dept') || '').trim();
+				const articleId = String(btn.getAttribute('data-article-id') || '').trim();
+				if (!dept || !articleId) return;
+				state.analytics.heatmap.selection = { dept, articleId };
+				renderAdminAnalytics();
+			});
+		}
+
+		// ---- follow-up panel (pseudo logic)
+		const candidates = safeArray(employees)
+			.filter((e) => isFollowUpCandidateByPseudoLogic(e))
+			.map((e) => ({
+				id: String(e?.id || ''),
+				name: String(e?.name || '—'),
+				dept: String(e?.dept || '—'),
+				temp: computePersonTemp(e),
+				cov: clamp(Math.round(Number(e?.coverage) || 0), 0, 100),
+				hist: pseudoCoverageHistory(e, 4),
+			}))
+			.sort((a, b) => a.temp - b.temp)
+			.slice(0, 6);
+
+		followCards.innerHTML = '';
+		candidates.forEach((c) => {
+			const card = document.createElement('div');
+			card.className = 'follow-card';
+			const latest = c.hist[c.hist.length - 1];
+			card.innerHTML = `
+				<div class="follow-head">
+					<div>
+						<div class="follow-name">${escapeHtml(c.name)}</div>
+						<div class="follow-meta">${escapeHtml(c.dept)} ・ 温度 ${clamp(c.temp, 0, 100)}% ・ 現在の網羅 ${c.cov}%</div>
+					</div>
+					<div class="follow-badge"><span class="pill heat" style="--p:${clamp(80, 0, 100)}">予兆</span></div>
+				</div>
+				<div class="muted small" style="margin-top:10px;">擬似ロジック: 直近3回連続で網羅率が20pt以上低下（デモ）</div>
+				<div class="muted small" style="margin-top:6px;">推移: ${escapeHtml(String(c.hist.join(' → ')))}（最新 ${latest}%）</div>
 			`;
-			heatGapEl.appendChild(head);
-
-			// dept engagement proxy
-			const deptEng = new Map();
-			depts.forEach((d) => {
-				const list = safeArray(employees).filter((e) => String(e?.dept || '').trim() === d);
-				const avg = Math.round(list.reduce((s, e) => s + computePersonTemp(e), 0) / Math.max(1, list.length));
-				deptEng.set(d, avg);
-			});
-
-			depts.slice(0, 8).forEach((d) => {
-				const row = document.createElement('div');
-				row.className = 'heat-gap-row';
-				const deptTemp = deptEng.get(d) ?? 50;
-				row.innerHTML = `<div class="heat-gap-cell">${escapeHtml(d)}<div class="muted small">現場温度 ${deptTemp}%</div></div>`;
-				cols.forEach((c) => {
-					const expected = c.importance;
-					const actual = clamp(Math.round(c.actual * 0.65 + deptTemp * 0.35), 0, 100);
-					const gap = Math.round(expected - actual);
-					const tone = gap >= 25 ? 'hot' : gap >= 12 ? 'warm' : 'cool';
-					const cell = document.createElement('div');
-					cell.className = 'heat-gap-cell';
-					cell.innerHTML = `
-						<div class="heat-gap-metric">
-							<span class="pill heat" style="--p:${expected}">期待 ${expected}%</span>
-							<span class="pill ${tone}" style="--p:${clamp(actual, 0, 100)}">実績 ${actual}%</span>
-						</div>
-						<div class="muted small" style="margin-top:6px;">ギャップ ${gap > 0 ? '+' : ''}${gap}</div>
-					`;
-					row.appendChild(cell);
-				});
-				heatGapEl.appendChild(row);
-			});
+			followCards.appendChild(card);
+		});
+		if (!candidates.length) {
+			followCards.innerHTML = `<div class="follow-card"><div class="muted">該当者は検出されていません（デモ）。</div></div>`;
 		}
 
 		state.analytics.lastRenderedAt = Date.now();
+	}
+
+	function renderAdminPerson() {
+		const root = document.querySelector('.route[data-route="admin-person"]');
+		if (!root) return;
+
+		const deptSel = document.getElementById('adminPersonFilterDept');
+		const typeSel = document.getElementById('adminPersonFilterType');
+		const articleTypeSel = document.getElementById('adminPersonFilterArticleType');
+		const tempBandSel = document.getElementById('adminPersonFilterTempBand');
+		const resetBtn = document.getElementById('adminPersonFilterReset');
+		const tbody = document.getElementById('adminPersonRows');
+		const listEmpty = document.getElementById('adminPersonListEmpty');
+		const detailTitle = document.getElementById('adminPersonDetailTitle');
+		const detailSummary = document.getElementById('adminPersonDetailSummary');
+		const detailRows = document.getElementById('adminPersonDetailRows');
+		const detailEmpty = document.getElementById('adminPersonDetailEmpty');
+		if (!deptSel || !typeSel || !articleTypeSel || !tempBandSel || !resetBtn || !tbody || !listEmpty || !detailTitle || !detailSummary || !detailRows || !detailEmpty) return;
+
+		function computeRow(e) {
+			const now = Date.now();
+			const last = Number(new Date(e?.last).getTime());
+			const days = Number.isFinite(last) ? Math.floor((now - last) / (24 * 60 * 60 * 1000)) : 999;
+			const all = safeArray(articles);
+			const agg = aggregatePersonAcrossArticles(e, all);
+			return {
+				id: String(e?.id || ''),
+				employeeNo: String(e?.employeeNo || ''),
+				name: String(e?.name || '—'),
+				dept: String(e?.dept || '—'),
+				lastDays: days,
+				temp: computePersonTemp(e),
+				coverage: clamp(Math.round(Number(e?.coverage) || 0), 0, 100),
+				readRate: agg.readRate,
+				unread: agg.unread,
+				avgSeconds: agg.avgSeconds,
+				type: classifyUsageType(e),
+				articleType: String(e?.articleType || ''),
+			};
+		}
+
+		function applyFilters(row) {
+			const f = state.adminPersonFilters || {};
+			if (f.dept && row.dept !== f.dept) return false;
+			if (f.type && row.type !== f.type) return false;
+			if (f.articleType && row.articleType !== f.articleType) return false;
+			if (f.tempBand) {
+				if (f.tempBand === 'low' && row.temp >= 40) return false;
+				if (f.tempBand === 'mid' && (row.temp < 40 || row.temp >= 70)) return false;
+				if (f.tempBand === 'high' && row.temp < 70) return false;
+			}
+			return true;
+		}
+
+		function renderList() {
+			tbody.innerHTML = '';
+			const rows = safeArray(employees)
+				.map(computeRow)
+				.filter((r) => r.id)
+				.filter(applyFilters)
+				.sort((a, b) => {
+					const aPri = a.type === '要フォロー' ? 0 : 1;
+					const bPri = b.type === '要フォロー' ? 0 : 1;
+					if (aPri !== bPri) return aPri - bPri;
+					return a.temp - b.temp;
+				});
+
+			// フィルタで選択社員が消えた場合はクリア
+			if (state.adminSelectedPersonId) {
+				const visibleSet = new Set(rows.map((r) => r.id));
+				if (!visibleSet.has(String(state.adminSelectedPersonId || ''))) state.adminSelectedPersonId = '';
+			}
+
+			rows.forEach((r) => {
+				const tr = document.createElement('tr');
+				tr.className = 'row-link';
+				tr.setAttribute('data-emp-id', r.id);
+				if (String(state.adminSelectedPersonId || '') === r.id) tr.setAttribute('data-selected', 'true');
+				tr.innerHTML = `
+					<td>${escapeHtml(r.name)}</td>
+					<td>${escapeHtml(r.dept)}</td>
+					<td class="num">${escapeHtml(r.employeeNo || '—')}</td>
+					<td class="num">${Number.isFinite(r.lastDays) ? `${r.lastDays}日前` : '—'}</td>
+					<td class="num">${r.temp}%</td>
+					<td class="num">${r.coverage}%</td>
+					<td class="num">${r.readRate}%</td>
+					<td class="num">${r.unread}</td>
+					<td class="num">${r.avgSeconds}秒</td>
+					<td>${escapeHtml(r.type)}</td>
+					<td>${escapeHtml(String(r.articleType || '—').toUpperCase())}</td>
+				`;
+				tbody.appendChild(tr);
+			});
+
+			listEmpty.hidden = rows.length > 0;
+			if (!rows.length) {
+				const tr = document.createElement('tr');
+				tr.innerHTML = `<td colspan="11" class="muted">条件に一致する社員がいません（デモ）。</td>`;
+				tbody.appendChild(tr);
+			}
+		}
+
+		function renderDetail() {
+			const empId = String(state.adminSelectedPersonId || '').trim();
+			const emp = safeArray(employees).find((e) => String(e?.id || '') === empId) || null;
+			if (!emp) {
+				detailTitle.textContent = 'まずは上の表から社員を選択してください。';
+				detailSummary.innerHTML = '';
+				detailRows.innerHTML = '';
+				detailEmpty.hidden = true;
+				return;
+			}
+
+			const all = safeArray(articles)
+				.slice()
+				.sort((a, b) => parseISOToMs(String(b?.date || '1970-01-01')) - parseISOToMs(String(a?.date || '1970-01-01')));
+
+			const agg = aggregatePersonAcrossArticles(emp, all);
+			detailTitle.textContent = `${String(emp?.name || '—')}（${String(emp?.dept || '—')}）の全記事ステータス（デモ）`;
+			detailSummary.innerHTML = `
+				<div class="kv-row"><span class="kv-k">記事数</span><span class="kv-v">${agg.count}</span></div>
+				<div class="kv-row"><span class="kv-k">読了</span><span class="kv-v">${agg.done}</span></div>
+				<div class="kv-row"><span class="kv-k">既読</span><span class="kv-v">${agg.read}</span></div>
+				<div class="kv-row"><span class="kv-k">未読</span><span class="kv-v">${agg.unread}</span></div>
+				<div class="kv-row"><span class="kv-k">既読率</span><span class="kv-v">${agg.readRate}%</span></div>
+				<div class="kv-row"><span class="kv-k">平均網羅率</span><span class="kv-v">${agg.avgReach}%</span></div>
+				<div class="kv-row"><span class="kv-k">平均閲覧</span><span class="kv-v">${agg.avgSeconds}秒</span></div>
+				<div class="kv-row"><span class="kv-k">合計閲覧</span><span class="kv-v">${Math.round(agg.totalSeconds / 60)}分</span></div>
+			`.trim();
+			detailRows.innerHTML = all
+				.map((a) => {
+					const m = pseudoPersonArticleMetrics(emp, a);
+					const title = String(a?.title || '—').replace(/^\[DUMMY\]\s*/i, '');
+					const cls = m.status === '読了' ? 'done' : m.status === '既読' ? 'read' : 'unread';
+					return `
+						<tr>
+							<td title="${escapeHtml(title)}">${escapeHtml(title)}</td>
+							<td class="num"><span class="status-pill ${cls}">${escapeHtml(m.status)}</span></td>
+							<td class="num">${m.seconds}秒</td>
+							<td class="num">${m.reach}%</td>
+						</tr>
+					`.trim();
+				})
+				.join('');
+
+			detailEmpty.hidden = all.length > 0;
+			if (!all.length) detailRows.innerHTML = '';
+		}
+
+		function syncFilterControlsFromState() {
+			const f = state.adminPersonFilters || {};
+			deptSel.value = String(f.dept || '');
+			typeSel.value = String(f.type || '');
+			articleTypeSel.value = String(f.articleType || '');
+			tempBandSel.value = String(f.tempBand || '');
+		}
+
+		syncFilterControlsFromState();
+		renderList();
+		renderDetail();
+
+		if (!root._boundAdminPerson) {
+			root._boundAdminPerson = true;
+
+			root.addEventListener('change', (e) => {
+				const t = e.target;
+				if (!(t instanceof HTMLElement)) return;
+				if (t === deptSel) state.adminPersonFilters.dept = String(deptSel.value || '');
+				if (t === typeSel) state.adminPersonFilters.type = String(typeSel.value || '');
+				if (t === articleTypeSel) state.adminPersonFilters.articleType = String(articleTypeSel.value || '');
+				if (t === tempBandSel) state.adminPersonFilters.tempBand = String(tempBandSel.value || '');
+				renderList();
+				// フィルタで選択社員が消えた場合はクリア
+				const still = state.adminSelectedPersonId && safeArray(employees).some((x) => String(x?.id || '') === String(state.adminSelectedPersonId || ''));
+				if (!still) state.adminSelectedPersonId = '';
+				renderDetail();
+			});
+
+			resetBtn.addEventListener('click', () => {
+				state.adminPersonFilters = { dept: '', type: '', articleType: '', tempBand: '' };
+				syncFilterControlsFromState();
+				renderList();
+				renderDetail();
+			});
+
+			root.addEventListener('click', (e) => {
+				const t = e.target instanceof Element ? e.target : e.target && e.target.parentElement ? e.target.parentElement : null;
+				const tr = t && t.closest ? t.closest('#adminPersonRows tr[data-emp-id]') : null;
+				if (!tr) return;
+				const id = String(tr.getAttribute('data-emp-id') || '').trim();
+				if (!id) return;
+				state.adminSelectedPersonId = id;
+				root.querySelectorAll('#adminPersonRows tr[data-emp-id]').forEach((x) => x.removeAttribute('data-selected'));
+				tr.setAttribute('data-selected', 'true');
+				renderDetail();
+			});
+		}
 	}
 
 	function syncActiveGlobalNav(route) {
 		const navRoute = route === 'article' ? 'content' : route;
 		$$('.site-header [data-route]').forEach((el) => el.removeAttribute('aria-current'));
 		$$(`.site-header [data-route="${navRoute}"]`).forEach((el) => el.setAttribute('aria-current', 'page'));
+		$$('#adminNav [data-route]').forEach((el) => el.removeAttribute('aria-current'));
+		$$(`#adminNav [data-route="${navRoute}"]`).forEach((el) => el.setAttribute('aria-current', 'page'));
 	}
 
 	function normalizeRoute(route) {
@@ -3611,12 +4911,17 @@
 
 			if (t.closest('#myGoAdminBtn')) {
 				e.preventDefault();
-				setRoute('admin');
+					setRoute('admin-analytics');
 				return;
 			}
 			if (t.closest('#myGoAnalyticsBtn')) {
 				e.preventDefault();
 				setRoute('admin-analytics');
+				return;
+			}
+			if (t.closest('#myGoUsageBtn')) {
+				e.preventDefault();
+				setRoute('admin-usage');
 				return;
 			}
 
