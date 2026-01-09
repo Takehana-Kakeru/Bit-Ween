@@ -26,6 +26,25 @@
 		serenQueue: [],
 		serenCursor: 0,
 		flowMode: false,
+		admin: {
+			previewDevice: 'pc',
+			tagQuery: '',
+			dragBlockId: '',
+			_tagLibrary: null,
+			draft: null,
+		},
+		analytics: {
+			chart: null,
+			lastRenderedAt: 0,
+		},
+		auth: {
+			isLoggedIn: true,
+			user: {
+				name: 'デモユーザー',
+				email: 'admin@company.co.jp',
+				isAdmin: true,
+			},
+		},
 	};
 
 	function enterFlowMode() {
@@ -47,7 +66,1513 @@
 		myProfile: 'bitween_my_profile_v1',
 		heatBonus: 'bitween_heat_bonus_v1',
 		matchHistory: 'bitween_match_history_v1',
+		auth: 'bitween_auth_v1',
+		adminDraft: 'bitween_admin_article_draft_v1',
+		adminArticles: 'bitween_admin_articles_v1',
+		adminCustomTags: 'bitween_admin_custom_tags_v1',
+		adminSurveys: 'bitween_admin_surveys_v1',
+		adminSurveyDraft: 'bitween_admin_survey_draft_v1',
+		adminEvents: 'bitween_admin_events_v1',
+		adminIntegrations: 'bitween_admin_integrations_v1',
 	};
+
+	const ADMIN_CATEGORY_PRESETS = ['代表メッセージ', '事業部紹介', '表彰', '制度・ナレッジ'];
+
+	const DEFAULT_ADMIN_TAG_LABELS = [
+		'動画編集',
+		'マーケティング',
+		'ライティング',
+		'デザイン',
+		'ノーコード',
+		'コーディング',
+		'カメラ・写真',
+		'SNS運用',
+		'生成AI',
+		'データ分析',
+		'データサイエンス',
+		'UX',
+		'UI',
+		'プロダクトマネジメント',
+		'事業開発',
+		'広報',
+		'採用',
+		'オンボーディング',
+		'研修設計',
+		'ドキュメント',
+		'社内コミュニケーション',
+		'心理的安全性',
+		'ファシリテーション',
+		'プレゼン',
+		'スライド作成',
+		'Excel',
+		'スプレッドシート',
+		'Notion',
+		'Slack',
+		'Teams',
+		'Google Workspace',
+		'Microsoft 365',
+		'情報設計',
+		'編集',
+		'企画',
+		'コピーライティング',
+		'SEO',
+		'広告運用',
+		'イベント運営',
+		'コミュニティ運営',
+		'社内制度',
+		'福利厚生',
+		'評価制度',
+		'表彰設計',
+		'ナレッジ共有',
+		'CS',
+		'カスタマーサクセス',
+		'サポート',
+		'営業',
+		'インサイドセールス',
+		'フィールドセールス',
+		'提案書作成',
+		'交渉',
+		'プロジェクト管理',
+		'PMO',
+		'アジャイル',
+		'スクラム',
+		'OKR',
+		'KPI設計',
+		'ダッシュボード',
+		'BI',
+		'SQL',
+		'Python',
+		'JavaScript',
+		'TypeScript',
+		'HTML',
+		'CSS',
+		'React',
+		'Vue',
+		'Node.js',
+		'API',
+		'セキュリティ',
+		'プライバシー',
+		'コンプライアンス',
+		'法務',
+		'経理',
+		'労務',
+		'総務',
+		'経営企画',
+		'IR',
+		'ブランド',
+		'カルチャー',
+		'ミッション・ビジョン',
+		'ストーリーテリング',
+		'社内報',
+		'動画撮影',
+		'動画台本',
+		'ナレーション',
+		'字幕',
+		'サムネ制作',
+		'撮影ディレクション',
+		'撮影機材',
+		'画像補正',
+		'レタッチ',
+		'イラスト',
+		'アイコン制作',
+		'バナー制作',
+		'デザインシステム',
+		'ユーザーインタビュー',
+		'アンケート設計',
+		'リサーチ',
+		'A/Bテスト',
+		'実験設計',
+		'数理最適化',
+		'統計',
+		'機械学習',
+		'自然言語処理',
+		'レコメンド',
+		'検索',
+		'グロース',
+		'CRM',
+		'MA',
+		'データ基盤',
+		'ETL',
+		'ログ設計',
+		'計測',
+		'イベントトラッキング',
+		'品質保証',
+		'テスト設計',
+		'運用',
+		'SRE',
+		'インフラ',
+		'クラウド',
+		'AWS',
+		'GCP',
+		'Azure',
+		'アクセシビリティ',
+		'モバイル',
+		'コミュニケーションデザイン',
+		'文章添削',
+		'マニュアル作成',
+		'FAQ',
+		'規程',
+		'研修資料',
+		'業務改善',
+		'自動化',
+		'RPA',
+		'Apps Script',
+		'Zapier',
+		'Make',
+		'Figma',
+		'Canva',
+		'Premiere Pro',
+		'After Effects',
+		'CapCut',
+		'Photoshop',
+		'Illustrator',
+		'Lightroom',
+	];
+
+	function hashString(str) {
+		let h = 5381;
+		for (let i = 0; i < str.length; i++) {
+			h = (h * 33) ^ str.charCodeAt(i);
+		}
+		return (h >>> 0).toString(16);
+	}
+
+	function tagIdFromLabel(label) {
+		return `tag_${hashString(String(label || '').trim().toLowerCase())}`;
+	}
+
+	function todayISO() {
+		const now = new Date();
+		const y = now.getFullYear();
+		const m = String(now.getMonth() + 1).padStart(2, '0');
+		const d = String(now.getDate()).padStart(2, '0');
+		return `${y}-${m}-${d}`;
+	}
+
+	function safeArray(v) {
+		return Array.isArray(v) ? v : [];
+	}
+
+	function normalizeProjects(text) {
+		return String(text || '')
+			.split(/[,、/\n]/g)
+			.map((s) => s.trim())
+			.filter(Boolean)
+			.slice(0, 20);
+	}
+
+	function defaultAdminDraft() {
+		return {
+			title: '',
+			category: '代表メッセージ',
+			template: 'writing',
+			tagIds: [],
+			blocks: [{ id: `blk_${Date.now()}_1`, type: 'text', text: '' }],
+			manualTemp: 0,
+			publishScope: 'internal',
+			targeting: { depts: [], projects: [], age: '' },
+		};
+	}
+
+	function loadAdminCustomTags() {
+		const raw = window.localStorage.getItem(STORAGE_KEYS.adminCustomTags);
+		const list = safeJsonParse(raw || '[]', []);
+		return safeArray(list)
+			.map((t) => (t && typeof t === 'object' ? { id: String(t.id || ''), label: String(t.label || '') } : null))
+			.filter((t) => t && t.id && t.label);
+	}
+
+	function saveAdminCustomTags(list) {
+		window.localStorage.setItem(STORAGE_KEYS.adminCustomTags, JSON.stringify(safeArray(list)));
+		state.admin._tagLibrary = null;
+	}
+
+	function getAdminTagLibrary() {
+		if (state.admin._tagLibrary) return state.admin._tagLibrary;
+		const custom = loadAdminCustomTags();
+		const base = DEFAULT_ADMIN_TAG_LABELS.map((label) => ({ id: tagIdFromLabel(label), label }));
+		const all = [...base, ...custom];
+		const seen = new Set();
+		const uniq = [];
+		all.forEach((t) => {
+			const key = t.id;
+			if (seen.has(key)) return;
+			seen.add(key);
+			uniq.push(t);
+		});
+		state.admin._tagLibrary = uniq;
+		return uniq;
+	}
+
+	function tagLabelById(id) {
+		const lib = getAdminTagLibrary();
+		const t = lib.find((x) => x.id === id);
+		return t ? t.label : '';
+	}
+
+	function ensureAdminDraftLoaded() {
+		if (state.admin.draft) return;
+		const raw = window.localStorage.getItem(STORAGE_KEYS.adminDraft);
+		const saved = safeJsonParse(raw || 'null', null);
+		if (saved && typeof saved === 'object') {
+			const d = {
+				...defaultAdminDraft(),
+				...saved,
+				category: saved.category || '代表メッセージ',
+				template: saved.template || 'writing',
+				tagIds: safeArray(saved.tagIds).filter(Boolean),
+				manualTemp: Number.isFinite(Number(saved.manualTemp)) ? clamp(Math.round(Number(saved.manualTemp)), 0, 100) : 0,
+				blocks: safeArray(saved.blocks)
+					.map((b, i) => {
+						if (!b || typeof b !== 'object') return null;
+						const id = String(b.id || `blk_${Date.now()}_${i}`);
+						const type = String(b.type || 'text');
+						if (type === 'image') return { id, type, src: String(b.src || ''), caption: String(b.caption || '') };
+						if (type === 'video') return { id, type, embedUrl: String(b.embedUrl || ''), src: String(b.src || ''), caption: String(b.caption || '') };
+						return { id, type: 'text', text: String(b.text || '') };
+					})
+					.filter(Boolean),
+				publishScope: saved.publishScope === 'external' ? 'external' : 'internal',
+				targeting: {
+					depts: safeArray(saved.targeting?.depts).filter(Boolean),
+					projects: safeArray(saved.targeting?.projects).filter(Boolean),
+					age: String(saved.targeting?.age || ''),
+				},
+			};
+			state.admin.draft = d.blocks.length ? d : { ...d, blocks: defaultAdminDraft().blocks };
+			return;
+		}
+		state.admin.draft = defaultAdminDraft();
+	}
+
+	function saveAdminDraft() {
+		ensureAdminDraftLoaded();
+		window.localStorage.setItem(STORAGE_KEYS.adminDraft, JSON.stringify(state.admin.draft));
+	}
+
+	function sanitizeReactions(r) {
+		const v = r && typeof r === 'object' ? r : {};
+		return {
+			like: Number(v.like) || 0,
+			thanks: Number(v.thanks) || 0,
+			comment: Number(v.comment) || 0,
+			heat: Number(v.heat) || 0,
+		};
+	}
+
+	function blocksToHTML(blocks, template) {
+		const list = safeArray(blocks);
+		const html = list
+			.map((b) => {
+				if (!b || typeof b !== 'object') return '';
+				if (b.type === 'text') {
+					const text = String(b.text || '').trim();
+					if (!text) return '';
+					const lines = escapeHtml(text).split(/\n{2,}/g);
+					return lines.map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+				}
+				if (b.type === 'image') {
+					const src = String(b.src || '').trim();
+					if (!src) return '';
+					const cap = String(b.caption || '').trim();
+					return `
+						<figure class="media">
+							<img alt="" src="${escapeHtml(src)}" />
+							${cap ? `<figcaption class="muted">${escapeHtml(cap)}</figcaption>` : ''}
+						</figure>
+					`.trim();
+				}
+				if (b.type === 'video') {
+					const cap = String(b.caption || '').trim();
+					const embedUrl = String(b.embedUrl || '').trim();
+					const src = String(b.src || '').trim();
+					if (embedUrl) {
+						const u = normalizeVideoEmbedUrl(embedUrl);
+						return `
+							<div class="video">
+								<iframe class="video-frame" src="${escapeHtml(u)}" title="video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>
+								${cap ? `<div class="muted" style="margin-top:8px;">${escapeHtml(cap)}</div>` : ''}
+							</div>
+						`.trim();
+					}
+					if (src) {
+						return `
+							<div class="video">
+								<video class="video-frame" src="${escapeHtml(src)}" controls></video>
+								${cap ? `<div class="muted" style="margin-top:8px;">${escapeHtml(cap)}</div>` : ''}
+							</div>
+						`.trim();
+					}
+				}
+				return '';
+			})
+			.filter(Boolean)
+			.join('');
+
+		// ギャラリーテンプレはプレビュー側でグリッドにするため、HTMLはそのまま
+		return html || '<p class="muted">（本文ブロックがまだありません）</p>';
+	}
+
+	function excerptFromBlocks(blocks) {
+		for (const b of safeArray(blocks)) {
+			if (!b || typeof b !== 'object') continue;
+			if (b.type === 'text') {
+				const t = String(b.text || '').trim().replace(/\s+/g, ' ');
+				if (t) return t.length > 60 ? t.slice(0, 60) + '…' : t;
+			}
+		}
+		return '（本文はブロックで作成）';
+	}
+
+	function normalizeVideoEmbedUrl(url) {
+		const u = String(url || '').trim();
+		if (!u) return '';
+		try {
+			const parsed = new URL(u);
+			if (parsed.hostname.includes('youtu.be')) {
+				const id = parsed.pathname.replace('/', '').trim();
+				return id ? `https://www.youtube.com/embed/${encodeURIComponent(id)}` : u;
+			}
+			if (parsed.hostname.includes('youtube.com')) {
+				const id = parsed.searchParams.get('v') || '';
+				return id ? `https://www.youtube.com/embed/${encodeURIComponent(id)}` : u;
+			}
+		} catch {
+			// ignore
+		}
+		return u;
+	}
+
+	function createArticleFromDraft(draft) {
+		const date = todayISO();
+		const id = `CUS_ART_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+		const tagIds = safeArray(draft.tagIds).filter(Boolean);
+		const tagLabels = tagIds.map(tagLabelById).filter(Boolean);
+		const category = draft.category || '代表メッセージ';
+		const tags = Array.from(new Set([category, ...tagLabels]));
+		const blocks = safeArray(draft.blocks);
+		const template = draft.template || 'writing';
+		const body = blocksToHTML(blocks, template);
+		const textLen = blocks
+			.filter((b) => b && b.type === 'text')
+			.reduce((sum, b) => sum + String(b.text || '').length, 0);
+		const readTimeMin = clamp(Math.ceil(textLen / 450), 1, 12);
+		const type = template === 'video' ? 'video' : template === 'gallery' ? 'image' : 'text';
+		return {
+			id,
+			dummy: false,
+			internalPostId: `BW-P-${date.replace(/-/g, '')}-${String(Date.now()).slice(-4)}`,
+			slug: `custom-${String(Date.now()).slice(-8)}`,
+			date,
+			title: draft.title ? `${draft.title}` : '（無題）',
+			excerpt: excerptFromBlocks(blocks),
+			tags,
+			tagIds,
+			category,
+			template,
+			type,
+			author: { dept: '広報', name: '管理者' },
+			readTimeMin,
+			views: 35,
+			coverage: 40,
+			reactions: { like: 0, thanks: 0, comment: 0, heat: 0 },
+			body,
+			blocks,
+			manualTemp: Number.isFinite(Number(draft.manualTemp)) ? clamp(Math.round(Number(draft.manualTemp)), 0, 100) : undefined,
+			publishScope: draft.publishScope === 'external' ? 'external' : 'internal',
+			targeting: {
+				depts: safeArray(draft.targeting?.depts).filter(Boolean),
+				projects: safeArray(draft.targeting?.projects).filter(Boolean),
+				age: String(draft.targeting?.age || ''),
+			},
+		};
+	}
+
+	function loadAdminArticles() {
+		const raw = window.localStorage.getItem(STORAGE_KEYS.adminArticles);
+		const list = safeJsonParse(raw || '[]', []);
+		const items = safeArray(list)
+			.map((a) => (a && typeof a === 'object' ? a : null))
+			.filter(Boolean)
+			.map((a) => {
+				const tags = safeArray(a.tags).map(String);
+				return {
+					...a,
+					id: String(a.id || ''),
+					date: String(a.date || todayISO()),
+					title: String(a.title || '（無題）'),
+					excerpt: String(a.excerpt || ''),
+					tags,
+					reactions: sanitizeReactions(a.reactions),
+					views: Number(a.views) || 0,
+					coverage: Number(a.coverage) || 0,
+					body: String(a.body || ''),
+					blocks: safeArray(a.blocks),
+				};
+			})
+			.filter((a) => a.id);
+
+		const existing = new Set(articles.map((a) => a.id));
+		items
+			.slice()
+			.reverse()
+			.forEach((a) => {
+				if (existing.has(a.id)) return;
+				articles.unshift(a);
+				existing.add(a.id);
+			});
+	}
+
+	function saveAdminArticles(list) {
+		window.localStorage.setItem(STORAGE_KEYS.adminArticles, JSON.stringify(safeArray(list)));
+	}
+
+	function adminDOM() {
+		return {
+			title: document.getElementById('adminTitle'),
+			category: document.getElementById('adminCategory'),
+			template: document.getElementById('adminTemplate'),
+			manualTemp: document.getElementById('adminManualTemp'),
+			manualTempValue: document.getElementById('adminManualTempValue'),
+			tagSearch: document.getElementById('adminTagSearch'),
+			newTag: document.getElementById('adminNewTag'),
+			addTagBtn: document.getElementById('adminAddTagBtn'),
+			selectedTags: document.getElementById('adminSelectedTags'),
+			tagList: document.getElementById('adminTagList'),
+			blocks: document.getElementById('adminBlocks'),
+			saveDraft: document.getElementById('adminSaveDraft'),
+			publish: document.getElementById('adminPublish'),
+			targetDept: document.getElementById('adminTargetDept'),
+			targetProject: document.getElementById('adminTargetProject'),
+			targetAge: document.getElementById('adminTargetAge'),
+			preview: document.getElementById('adminPreview'),
+			previewTitle: document.getElementById('adminPreviewTitle'),
+			previewMeta: document.getElementById('adminPreviewMeta'),
+			previewTags: document.getElementById('adminPreviewTags'),
+			previewBody: document.getElementById('adminPreviewBody'),
+		};
+	}
+
+	function renderAdminTagList() {
+		ensureAdminDraftLoaded();
+		const dom = adminDOM();
+		if (!dom.tagList) return;
+		const q = String(state.admin.tagQuery || '').trim().toLowerCase();
+		const lib = getAdminTagLibrary();
+		const items = lib
+			.filter((t) => !q || t.label.toLowerCase().includes(q))
+			.slice(0, 120);
+		const selected = new Set(safeArray(state.admin.draft.tagIds));
+		dom.tagList.innerHTML = items
+			.map((t) => {
+				const on = selected.has(t.id);
+				return `<label class="check"><input type="checkbox" data-admin-tag-pick="${escapeHtml(t.id)}" ${on ? 'checked' : ''} /> ${escapeHtml(t.label)}</label>`;
+			})
+			.join('');
+	}
+
+	function renderAdminSelectedTags() {
+		ensureAdminDraftLoaded();
+		const dom = adminDOM();
+		if (!dom.selectedTags) return;
+		const ids = safeArray(state.admin.draft.tagIds);
+		if (!ids.length) {
+			dom.selectedTags.innerHTML = '<div class="muted small">（未選択）</div>';
+			return;
+		}
+		dom.selectedTags.innerHTML = ids
+			.map((id) => {
+				const label = tagLabelById(id) || id;
+				return `<button class="chip" type="button" data-admin-tag-remove="${escapeHtml(id)}" aria-label="タグ解除">#${escapeHtml(label)}</button>`;
+			})
+			.join('');
+	}
+
+	function blockLabel(type) {
+		if (type === 'image') return '画像';
+		if (type === 'video') return '動画';
+		return 'テキスト';
+	}
+
+	function renderAdminBlocks() {
+		ensureAdminDraftLoaded();
+		const dom = adminDOM();
+		if (!dom.blocks) return;
+		const blocks = safeArray(state.admin.draft.blocks);
+		dom.blocks.innerHTML = blocks
+			.map((b) => {
+				const type = String(b.type || 'text');
+				const head = `
+					<div class="admin-block-head">
+						<div class="admin-block-title"><span class="admin-drag" aria-hidden="true">⋮⋮</span>${escapeHtml(blockLabel(type))}</div>
+						<button class="btn btn-ghost" type="button" data-admin-remove-block="${escapeHtml(b.id)}">削除</button>
+					</div>
+				`.trim();
+				if (type === 'image') {
+					return `
+						<div class="admin-block" draggable="true" data-admin-block="${escapeHtml(b.id)}" data-admin-type="image">
+							${head}
+							<div class="admin-block-body">
+								<div class="field" style="margin-bottom:10px;">
+									<label class="field-label">画像URL（任意）</label>
+									<input class="input" type="url" placeholder="https://..." data-admin-block-field="src" value="${escapeHtml(b.src || '')}" />
+								</div>
+								<div class="field" style="margin-bottom:10px;">
+									<label class="field-label">画像アップロード（任意）</label>
+									<input class="input" type="file" accept="image/*" data-admin-block-file="image" />
+									<div class="muted small" style="margin-top:6px;">デモのため、埋め込み（DataURL）として保存します。</div>
+								</div>
+								<div class="field">
+									<label class="field-label">キャプション（任意）</label>
+									<input class="input" type="text" placeholder="例: 社内イベントの様子" data-admin-block-field="caption" value="${escapeHtml(b.caption || '')}" />
+								</div>
+							</div>
+						</div>
+					`.trim();
+				}
+				if (type === 'video') {
+					return `
+						<div class="admin-block" draggable="true" data-admin-block="${escapeHtml(b.id)}" data-admin-type="video">
+							${head}
+							<div class="admin-block-body">
+								<div class="field" style="margin-bottom:10px;">
+									<label class="field-label">埋め込みURL（YouTubeなど）</label>
+									<input class="input" type="url" placeholder="https://www.youtube.com/watch?v=..." data-admin-block-field="embedUrl" value="${escapeHtml(b.embedUrl || '')}" />
+								</div>
+								<div class="field" style="margin-bottom:10px;">
+									<label class="field-label">動画アップロード（任意）</label>
+									<input class="input" type="file" accept="video/*" data-admin-block-file="video" />
+									<div class="muted small" style="margin-top:6px;">デモのため、埋め込み（DataURL）として保存します。</div>
+								</div>
+								<div class="field">
+									<label class="field-label">補足（任意）</label>
+									<input class="input" type="text" placeholder="例: 3分で分かるハイライト" data-admin-block-field="caption" value="${escapeHtml(b.caption || '')}" />
+								</div>
+							</div>
+						</div>
+					`.trim();
+				}
+				// text
+				return `
+					<div class="admin-block" draggable="true" data-admin-block="${escapeHtml(b.id)}" data-admin-type="text">
+						${head}
+						<div class="admin-block-body">
+							<div class="field">
+								<label class="field-label">本文</label>
+								<textarea class="textarea" rows="5" placeholder="見出しや箇条書きは、段落（改行）で表現できます" data-admin-block-field="text">${escapeHtml(b.text || '')}</textarea>
+							</div>
+						</div>
+					</div>
+				`.trim();
+			})
+			.join('');
+	}
+
+	function renderAdminPreview() {
+		ensureAdminDraftLoaded();
+		const dom = adminDOM();
+		if (!dom.preview || !dom.previewTitle || !dom.previewBody || !dom.previewMeta || !dom.previewTags) return;
+		const d = state.admin.draft;
+		const title = d.title ? d.title : '—';
+		const date = todayISO();
+		const scope = d.publishScope === 'external' ? '社外公開' : '社内限定';
+		const deptTxt = safeArray(d.targeting?.depts).length ? `対象: ${d.targeting.depts.join(' / ')}` : '対象: 全社';
+		const proj = safeArray(d.targeting?.projects);
+		const projTxt = proj.length ? `プロジェクト: ${proj.slice(0, 3).join(' / ')}` : '';
+		const ageTxt = d.targeting?.age ? `年齢: ${escapeHtml(d.targeting.age)}` : '';
+		const meta = `${formatDate(date)} ・ ${escapeHtml(scope)} ・ 温度 ${clamp(Math.round(Number(d.manualTemp || 0)), 0, 100)}% ・ ${deptTxt}${projTxt ? ' ・ ' + projTxt : ''}${ageTxt ? ' ・ ' + ageTxt : ''}`;
+		dom.previewTitle.textContent = title;
+		dom.previewMeta.textContent = meta;
+		const tagIds = safeArray(d.tagIds);
+		const labels = tagIds.map(tagLabelById).filter(Boolean);
+		const tags = Array.from(new Set([d.category || '代表メッセージ', ...labels]));
+		dom.previewTags.innerHTML = tags.map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join('');
+
+		dom.preview.setAttribute('data-admin-device', state.admin.previewDevice || 'pc');
+		dom.preview.classList.toggle('template-gallery', d.template === 'gallery');
+		dom.previewBody.innerHTML = blocksToHTML(d.blocks, d.template);
+	}
+
+	function renderAdmin() {
+		ensureAdminDraftLoaded();
+		const dom = adminDOM();
+		if (!dom.title) return;
+		const d = state.admin.draft;
+		dom.title.value = d.title || '';
+		if (dom.category) dom.category.value = ADMIN_CATEGORY_PRESETS.includes(d.category) ? d.category : '代表メッセージ';
+		if (dom.template) dom.template.value = d.template || 'writing';
+		if (dom.manualTemp instanceof HTMLInputElement) {
+			dom.manualTemp.value = String(clamp(Math.round(Number(d.manualTemp || 0)), 0, 100));
+			if (dom.manualTempValue) {
+				const p = clamp(Math.round(Number(d.manualTemp || 0)), 0, 100);
+				dom.manualTempValue.textContent = `温度 ${p}%`;
+				dom.manualTempValue.style.setProperty('--p', String(p));
+			}
+		}
+		if (dom.tagSearch && !dom.tagSearch.value) dom.tagSearch.value = state.admin.tagQuery || '';
+
+		// scope
+		const scopeEls = document.querySelectorAll('input[name="adminScope"]');
+		scopeEls.forEach((el) => {
+			if (!(el instanceof HTMLInputElement)) return;
+			el.checked = el.value === (d.publishScope || 'internal');
+		});
+
+		// targeting
+		if (dom.targetDept) {
+			const picked = new Set(safeArray(d.targeting?.depts));
+			dom.targetDept.querySelectorAll('input[type="checkbox"]').forEach((el) => {
+				if (!(el instanceof HTMLInputElement)) return;
+				el.checked = picked.has(el.value);
+			});
+		}
+		if (dom.targetProject) dom.targetProject.value = safeArray(d.targeting?.projects).join(', ');
+		if (dom.targetAge) dom.targetAge.value = String(d.targeting?.age || '');
+
+		renderAdminSelectedTags();
+		renderAdminTagList();
+		renderAdminBlocks();
+		renderAdminPreview();
+	}
+
+	function setupAdminEditor() {
+		const dom = adminDOM();
+		if (!dom.title) return;
+		dom.manualTemp?.addEventListener('input', () => {
+			ensureAdminDraftLoaded();
+			const p = clamp(Math.round(Number(dom.manualTemp.value || 0)), 0, 100);
+			state.admin.draft.manualTemp = p;
+			if (dom.manualTempValue) {
+				dom.manualTempValue.textContent = `温度 ${p}%`;
+				dom.manualTempValue.style.setProperty('--p', String(p));
+			}
+			commitAndPreview();
+		});
+
+
+		ensureAdminDraftLoaded();
+
+		function commitAndPreview() {
+			saveAdminDraft();
+			renderAdminPreview();
+		}
+
+		dom.title.addEventListener('input', () => {
+			ensureAdminDraftLoaded();
+			state.admin.draft.title = dom.title.value;
+			commitAndPreview();
+		});
+
+		dom.category?.addEventListener('change', () => {
+			ensureAdminDraftLoaded();
+			state.admin.draft.category = dom.category.value;
+			commitAndPreview();
+		});
+
+		dom.template?.addEventListener('change', () => {
+			ensureAdminDraftLoaded();
+			state.admin.draft.template = dom.template.value;
+			commitAndPreview();
+		});
+
+		dom.tagSearch?.addEventListener('input', () => {
+			state.admin.tagQuery = dom.tagSearch.value;
+			renderAdminTagList();
+		});
+
+		dom.addTagBtn?.addEventListener('click', () => {
+			const label = String(dom.newTag?.value || '').trim();
+			if (!label) {
+				toast('新規タグ名を入力してください');
+				return;
+			}
+			const id = tagIdFromLabel(label);
+			const custom = loadAdminCustomTags();
+			if (!custom.some((t) => t.id === id)) {
+				custom.unshift({ id, label });
+				saveAdminCustomTags(custom);
+			}
+			ensureAdminDraftLoaded();
+			const ids = new Set(safeArray(state.admin.draft.tagIds));
+			ids.add(id);
+			state.admin.draft.tagIds = Array.from(ids);
+			if (dom.newTag) dom.newTag.value = '';
+			commitAndPreview();
+			renderAdminSelectedTags();
+			renderAdminTagList();
+			toast(`タグを追加: #${label}`);
+		});
+
+		// scope
+		document.querySelectorAll('input[name="adminScope"]').forEach((el) => {
+			if (!(el instanceof HTMLInputElement)) return;
+			el.addEventListener('change', () => {
+				ensureAdminDraftLoaded();
+				state.admin.draft.publishScope = el.value === 'external' ? 'external' : 'internal';
+				commitAndPreview();
+			});
+		});
+
+		dom.targetDept?.addEventListener('change', () => {
+			ensureAdminDraftLoaded();
+			const picked = [];
+			dom.targetDept.querySelectorAll('input[type="checkbox"]').forEach((el) => {
+				if (!(el instanceof HTMLInputElement)) return;
+				if (el.checked) picked.push(el.value);
+			});
+			state.admin.draft.targeting.depts = picked;
+			commitAndPreview();
+		});
+
+		dom.targetProject?.addEventListener('input', () => {
+			ensureAdminDraftLoaded();
+			state.admin.draft.targeting.projects = normalizeProjects(dom.targetProject.value);
+			commitAndPreview();
+		});
+
+		dom.targetAge?.addEventListener('change', () => {
+			ensureAdminDraftLoaded();
+			state.admin.draft.targeting.age = dom.targetAge.value;
+			commitAndPreview();
+		});
+
+		// preview device
+		$$('[data-admin-preview]').forEach((btn) => {
+			btn.addEventListener('click', () => {
+				const v = btn.getAttribute('data-admin-preview');
+				state.admin.previewDevice = v === 'mobile' ? 'mobile' : 'pc';
+				$$('[data-admin-preview]').forEach((b) => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
+				renderAdminPreview();
+			});
+		});
+
+		// block actions (add/remove)
+		document.addEventListener('click', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLElement)) return;
+			const add = t.closest('[data-admin-add-block]')?.getAttribute('data-admin-add-block');
+			if (add) {
+				e.preventDefault();
+				ensureAdminDraftLoaded();
+				const id = `blk_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`;
+				if (add === 'image') state.admin.draft.blocks.push({ id, type: 'image', src: '', caption: '' });
+				else if (add === 'video') state.admin.draft.blocks.push({ id, type: 'video', embedUrl: '', src: '', caption: '' });
+				else state.admin.draft.blocks.push({ id, type: 'text', text: '' });
+				renderAdminBlocks();
+				commitAndPreview();
+				return;
+			}
+
+			const rem = t.closest('[data-admin-remove-block]')?.getAttribute('data-admin-remove-block');
+			if (rem) {
+				e.preventDefault();
+				ensureAdminDraftLoaded();
+				state.admin.draft.blocks = safeArray(state.admin.draft.blocks).filter((b) => b && b.id !== rem);
+				if (!state.admin.draft.blocks.length) state.admin.draft.blocks = defaultAdminDraft().blocks;
+				renderAdminBlocks();
+				commitAndPreview();
+				return;
+			}
+
+			const tagRemove = t.closest('[data-admin-tag-remove]')?.getAttribute('data-admin-tag-remove');
+			if (tagRemove) {
+				e.preventDefault();
+				ensureAdminDraftLoaded();
+				state.admin.draft.tagIds = safeArray(state.admin.draft.tagIds).filter((id) => id !== tagRemove);
+				renderAdminSelectedTags();
+				renderAdminTagList();
+				commitAndPreview();
+				return;
+			}
+		});
+
+		// tag pick by checkbox
+		dom.tagList?.addEventListener('change', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLInputElement)) return;
+			const id = t.getAttribute('data-admin-tag-pick');
+			if (!id) return;
+			ensureAdminDraftLoaded();
+			const set = new Set(safeArray(state.admin.draft.tagIds));
+			if (t.checked) set.add(id);
+			else set.delete(id);
+			state.admin.draft.tagIds = Array.from(set);
+			renderAdminSelectedTags();
+			commitAndPreview();
+		});
+
+		// block inputs
+		dom.blocks?.addEventListener('input', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLElement)) return;
+			const wrap = t.closest('[data-admin-block]');
+			if (!(wrap instanceof HTMLElement)) return;
+			const id = wrap.getAttribute('data-admin-block');
+			if (!id) return;
+			const field = (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) ? t.getAttribute('data-admin-block-field') : '';
+			if (!field) return;
+			ensureAdminDraftLoaded();
+			const blocks = safeArray(state.admin.draft.blocks);
+			const b = blocks.find((x) => x && x.id === id);
+			if (!b) return;
+			if (field === 'text' && t instanceof HTMLTextAreaElement) b.text = t.value;
+			if (field === 'src' && t instanceof HTMLInputElement) b.src = t.value;
+			if (field === 'caption' && t instanceof HTMLInputElement) b.caption = t.value;
+			if (field === 'embedUrl' && t instanceof HTMLInputElement) b.embedUrl = t.value;
+			commitAndPreview();
+		});
+
+		dom.blocks?.addEventListener('change', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLInputElement)) return;
+			const fileKind = t.getAttribute('data-admin-block-file');
+			if (!fileKind) return;
+			const wrap = t.closest('[data-admin-block]');
+			if (!(wrap instanceof HTMLElement)) return;
+			const id = wrap.getAttribute('data-admin-block');
+			if (!id) return;
+			const file = t.files && t.files[0];
+			if (!file) return;
+			ensureAdminDraftLoaded();
+			const blocks = safeArray(state.admin.draft.blocks);
+			const b = blocks.find((x) => x && x.id === id);
+			if (!b) return;
+			const reader = new FileReader();
+			reader.onload = () => {
+				const result = typeof reader.result === 'string' ? reader.result : '';
+				if (!result) return;
+				b.src = result;
+				renderAdminBlocks();
+				commitAndPreview();
+			};
+			reader.readAsDataURL(file);
+		});
+
+		// drag & drop reorder
+		dom.blocks?.addEventListener('dragstart', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLElement)) return;
+			const blk = t.closest('[data-admin-block]');
+			if (!(blk instanceof HTMLElement)) return;
+			const id = blk.getAttribute('data-admin-block');
+			if (!id) return;
+			state.admin.dragBlockId = id;
+			blk.classList.add('dragging');
+			try {
+				e.dataTransfer?.setData('text/plain', id);
+				e.dataTransfer?.setDragImage(blk, 20, 20);
+			} catch {
+				// ignore
+			}
+		});
+
+		dom.blocks?.addEventListener('dragend', () => {
+			state.admin.dragBlockId = '';
+			dom.blocks?.querySelectorAll('.admin-block').forEach((el) => el.classList.remove('dragging', 'drop-target'));
+		});
+
+		dom.blocks?.addEventListener('dragover', (e) => {
+			e.preventDefault();
+			const t = e.target;
+			if (!(t instanceof HTMLElement)) return;
+			const over = t.closest('[data-admin-block]');
+			if (!(over instanceof HTMLElement)) return;
+			const id = over.getAttribute('data-admin-block');
+			if (!id || id === state.admin.dragBlockId) return;
+			dom.blocks?.querySelectorAll('.admin-block').forEach((el) => el.classList.remove('drop-target'));
+			over.classList.add('drop-target');
+		});
+
+		dom.blocks?.addEventListener('drop', (e) => {
+			e.preventDefault();
+			const t = e.target;
+			if (!(t instanceof HTMLElement)) return;
+			const target = t.closest('[data-admin-block]');
+			if (!(target instanceof HTMLElement)) return;
+			const toId = target.getAttribute('data-admin-block');
+			const fromId = state.admin.dragBlockId || (e.dataTransfer?.getData('text/plain') || '');
+			if (!fromId || !toId || fromId === toId) return;
+			ensureAdminDraftLoaded();
+			const blocks = safeArray(state.admin.draft.blocks);
+			const fromIdx = blocks.findIndex((b) => b && b.id === fromId);
+			const toIdx = blocks.findIndex((b) => b && b.id === toId);
+			if (fromIdx < 0 || toIdx < 0) return;
+			const next = blocks.slice();
+			const [moved] = next.splice(fromIdx, 1);
+			next.splice(toIdx, 0, moved);
+			state.admin.draft.blocks = next;
+			renderAdminBlocks();
+			commitAndPreview();
+		});
+
+		dom.saveDraft?.addEventListener('click', () => {
+			ensureAdminDraftLoaded();
+			saveAdminDraft();
+			toast('下書きを保存しました');
+		});
+
+		dom.publish?.addEventListener('click', () => {
+			ensureAdminDraftLoaded();
+			const d = state.admin.draft;
+			if (!String(d.title || '').trim()) {
+				toast('タイトルを入力してください');
+				return;
+			}
+			const article = createArticleFromDraft(d);
+			articles.unshift(article);
+			const saved = safeJsonParse(window.localStorage.getItem(STORAGE_KEYS.adminArticles) || '[]', []);
+			const list = safeArray(saved).filter((x) => x && x.id !== article.id);
+			list.unshift(article);
+			saveAdminArticles(list.slice(0, 50));
+			saveAdminDraft();
+
+			// 社員側の表示も更新（ターゲット外なら一覧には出ない）
+			buildTagOptions();
+			renderArticles();
+			renderPopular();
+			renderMetricsTable();
+			renderStats();
+			const visible = isArticleVisibleToViewer(article);
+			toast(visible ? '公開しました（デモ）' : '公開しました（デモ）※現在のユーザーは対象外のため記事一覧には表示されません');
+		});
+
+		// 初期レンダ
+		renderAdmin();
+	}
+
+	function adminExtrasDOM() {
+		return {
+			surveyTitle: document.getElementById('surveyTitle'),
+			surveyPlacement: document.getElementById('surveyPlacement'),
+			surveyArticleId: document.getElementById('surveyArticleId'),
+			surveyQuestions: document.getElementById('surveyQuestions'),
+			surveySave: document.getElementById('surveySave'),
+			surveyPublish: document.getElementById('surveyPublish'),
+			surveyList: document.getElementById('surveyList'),
+			addTextQ: document.querySelector('[data-survey-add-q="text"]'),
+			addChoiceQ: document.querySelector('[data-survey-add-q="choice"]'),
+			eventDate: document.getElementById('eventDate'),
+			eventTitle: document.getElementById('eventTitle'),
+			eventTag: document.getElementById('eventTag'),
+			eventAdd: document.getElementById('eventAdd'),
+			eventCsv: document.getElementById('eventCsv'),
+			eventCsvFile: document.getElementById('eventCsvFile'),
+			eventImport: document.getElementById('eventImport'),
+			eventList: document.getElementById('eventList'),
+			notionEnabled: document.getElementById('notionEnabled'),
+			notionProxyUrl: document.getElementById('notionProxyUrl'),
+			notionDbId: document.getElementById('notionDbId'),
+			notionSync: document.getElementById('notionSync'),
+			coenEnabled: document.getElementById('coenEnabled'),
+			coenCalendarUrl: document.getElementById('coenCalendarUrl'),
+			coenSync: document.getElementById('coenSync'),
+			integrationStatus: document.getElementById('integrationStatus'),
+		};
+	}
+
+	function uid(prefix) {
+		return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+	}
+
+	function loadAdminSurveys() {
+		const raw = window.localStorage.getItem(STORAGE_KEYS.adminSurveys);
+		const list = safeJsonParse(raw || '[]', []);
+		return Array.isArray(list) ? list : [];
+	}
+
+	function saveAdminSurveys(list) {
+		window.localStorage.setItem(STORAGE_KEYS.adminSurveys, JSON.stringify(Array.isArray(list) ? list : []));
+	}
+
+	function defaultSurveyDraft() {
+		return {
+			id: uid('SURV'),
+			title: '',
+			placement: 'home',
+			articleId: '',
+			questions: [],
+			status: 'draft',
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+		};
+	}
+
+	function loadSurveyDraft() {
+		const raw = window.localStorage.getItem(STORAGE_KEYS.adminSurveyDraft);
+		const v = safeJsonParse(raw || 'null', null);
+		if (!v || typeof v !== 'object') return defaultSurveyDraft();
+		return {
+			...defaultSurveyDraft(),
+			...v,
+			questions: Array.isArray(v.questions) ? v.questions : [],
+		};
+	}
+
+	function saveSurveyDraft(draft) {
+		window.localStorage.setItem(STORAGE_KEYS.adminSurveyDraft, JSON.stringify(draft || defaultSurveyDraft()));
+	}
+
+	function loadAdminEvents() {
+		const raw = window.localStorage.getItem(STORAGE_KEYS.adminEvents);
+		const list = safeJsonParse(raw || '[]', []);
+		return Array.isArray(list) ? list : [];
+	}
+
+	function saveAdminEvents(list) {
+		window.localStorage.setItem(STORAGE_KEYS.adminEvents, JSON.stringify(Array.isArray(list) ? list : []));
+	}
+
+	function loadIntegrations() {
+		const base = {
+			notionEnabled: false,
+			notionProxyUrl: '',
+			notionDbId: '',
+			coenEnabled: false,
+			coenCalendarUrl: '',
+			lastSyncAt: 0,
+			lastSyncStatus: '未同期',
+			lastExternalEvents: [],
+		};
+		const raw = window.localStorage.getItem(STORAGE_KEYS.adminIntegrations);
+		const v = safeJsonParse(raw || 'null', null);
+		if (!v || typeof v !== 'object') return base;
+		return {
+			...base,
+			...v,
+			lastExternalEvents: Array.isArray(v.lastExternalEvents) ? v.lastExternalEvents : [],
+		};
+	}
+
+	function saveIntegrations(v) {
+		window.localStorage.setItem(STORAGE_KEYS.adminIntegrations, JSON.stringify(v || loadIntegrations()));
+	}
+
+	function normalizeEvent(e) {
+		const date = String(e?.date || '').trim();
+		const title = String(e?.title || '').trim();
+		const tag = String(e?.tag || '').trim();
+		if (!date || !title) return null;
+		return {
+			id: e?.id || uid('EVT'),
+			date,
+			title,
+			tag,
+			source: e?.source || 'internal',
+			createdAt: e?.createdAt || Date.now(),
+		};
+	}
+
+	function parseEventCsv(text) {
+		const lines = String(text || '')
+			.split(/\r?\n/)
+			.map((s) => s.trim())
+			.filter(Boolean);
+
+		const out = [];
+		for (const line of lines) {
+			if (/^date\s*,\s*title\s*,\s*tag\s*$/i.test(line)) continue;
+			const parts = line.split(',').map((s) => s.trim());
+			if (parts.length < 2) continue;
+			const [date, title, tag = ''] = parts;
+			const evt = normalizeEvent({ date, title, tag, source: 'internal' });
+			if (evt) out.push(evt);
+		}
+		return out;
+	}
+
+	function getAllCalendarEvents() {
+		const internal = loadAdminEvents()
+			.map((e) => {
+				const raw = e && typeof e === 'object' ? e : {};
+				return normalizeEvent({ ...raw, source: raw.source || 'internal' });
+			})
+			.filter(Boolean);
+
+		const integrations = loadIntegrations();
+		const external = (integrations.lastExternalEvents || [])
+			.map((e) => normalizeEvent(e))
+			.filter(Boolean)
+			.map((e) => ({ ...e, source: e.source || 'external' }));
+
+		return [...calendarEvents, ...internal, ...external];
+	}
+
+	function renderAdminSurveyQuestions(draft) {
+		const dom = adminExtrasDOM();
+		const root = dom.surveyQuestions;
+		if (!(root instanceof HTMLElement)) return;
+		const questions = Array.isArray(draft?.questions) ? draft.questions : [];
+		if (!questions.length) {
+			root.innerHTML = '<div class="muted">設問がまだありません。上のボタンから追加してください。</div>';
+			return;
+		}
+		root.innerHTML = questions
+			.map((q, idx) => {
+				const num = idx + 1;
+				if (q.type === 'text') {
+					return `
+						<div class="admin-block" data-qid="${escapeHtml(q.id)}">
+							<div class="admin-block-head">
+								<div class="pill cool">記述式</div>
+								<div class="muted small">Q${num}</div>
+								<button class="btn btn-ghost" type="button" data-q-remove="${escapeHtml(q.id)}">削除</button>
+							</div>
+							<div class="field" style="margin-top:10px;">
+								<label class="field-label">質問文</label>
+								<input class="input" type="text" value="${escapeHtml(q.title || '')}" data-q-title="${escapeHtml(q.id)}" placeholder="例: 研修のどこが難しかったですか？" />
+							</div>
+						</div>
+					`.trim();
+				}
+				const opts = Array.isArray(q.options) ? q.options : [];
+				return `
+					<div class="admin-block" data-qid="${escapeHtml(q.id)}">
+						<div class="admin-block-head">
+							<div class="pill cool">選択式</div>
+							<div class="muted small">Q${num}</div>
+							<button class="btn btn-ghost" type="button" data-q-remove="${escapeHtml(q.id)}">削除</button>
+						</div>
+						<div class="field" style="margin-top:10px;">
+							<label class="field-label">質問文</label>
+							<input class="input" type="text" value="${escapeHtml(q.title || '')}" data-q-title="${escapeHtml(q.id)}" placeholder="例: 内容の理解度は？" />
+						</div>
+						<div class="field" style="margin-top:10px;">
+							<label class="field-label">選択肢（改行区切り）</label>
+							<textarea class="textarea" rows="4" data-q-options="${escapeHtml(q.id)}" placeholder="例:\nとても理解できた\nまあまあ\n難しかった">${escapeHtml(opts.join('\n'))}</textarea>
+						</div>
+					</div>
+				`.trim();
+			})
+			.join('');
+	}
+
+	function renderAdminSurveyList() {
+		const dom = adminExtrasDOM();
+		const el = dom.surveyList;
+		if (!(el instanceof HTMLElement)) return;
+		const list = loadAdminSurveys();
+		if (!list.length) {
+			el.innerHTML = '<div class="muted">公開中アンケートはありません。</div>';
+			return;
+		}
+		el.innerHTML = list
+			.slice()
+			.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+			.map((s) => {
+				const placement = s.placement === 'article' ? `記事詳細（${escapeHtml(s.articleId || '-')}）` : 'ダッシュボード（ホーム）';
+				const qCount = Array.isArray(s.questions) ? s.questions.length : 0;
+				return `
+					<div class="rank-item">
+						<div class="rank-link" style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+							<div>
+								<div class="rank-title">${escapeHtml(s.title || '(無題)')}</div>
+								<div class="rank-meta">${placement} / 設問 ${qCount}</div>
+							</div>
+							<div style="display:flex; gap:8px;">
+								<button class="btn btn-ghost" type="button" data-survey-edit="${escapeHtml(s.id)}">編集</button>
+								<button class="btn btn-ghost" type="button" data-survey-unpublish="${escapeHtml(s.id)}">非公開</button>
+							</div>
+						</div>
+					</div>
+				`.trim();
+			})
+			.join('');
+	}
+
+	function renderAdminEventList() {
+		const dom = adminExtrasDOM();
+		const el = dom.eventList;
+		if (!(el instanceof HTMLElement)) return;
+		const list = loadAdminEvents();
+		if (!list.length) {
+			el.innerHTML = '<div class="muted">イベントはまだ登録されていません。</div>';
+			return;
+		}
+		el.innerHTML = list
+			.slice()
+			.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.title || '').localeCompare(String(b.title || '')))
+			.map((e) => {
+				const t = e.tag ? `<span class="pill cool">${escapeHtml(e.tag)}</span>` : '';
+				return `
+					<div class="alert">
+						<div class="alert-title">${escapeHtml(e.title)}</div>
+						<div class="alert-sub">${escapeHtml(e.date)} ${t}</div>
+					</div>
+				`.trim();
+			})
+			.join('');
+	}
+
+	function renderAdminIntegrations() {
+		const dom = adminExtrasDOM();
+		const v = loadIntegrations();
+		if (dom.notionEnabled instanceof HTMLInputElement) dom.notionEnabled.checked = !!v.notionEnabled;
+		if (dom.notionProxyUrl instanceof HTMLInputElement) dom.notionProxyUrl.value = v.notionProxyUrl || '';
+		if (dom.notionDbId instanceof HTMLInputElement) dom.notionDbId.value = v.notionDbId || '';
+		if (dom.coenEnabled instanceof HTMLInputElement) dom.coenEnabled.checked = !!v.coenEnabled;
+		if (dom.coenCalendarUrl instanceof HTMLInputElement) dom.coenCalendarUrl.value = v.coenCalendarUrl || '';
+		if (dom.integrationStatus instanceof HTMLElement) dom.integrationStatus.textContent = v.lastSyncStatus || '未同期';
+	}
+
+	function renderAdminExtrasView(subview) {
+		if (subview === 'surveys') {
+			const dom = adminExtrasDOM();
+			const draft = loadSurveyDraft();
+			if (dom.surveyTitle instanceof HTMLInputElement) dom.surveyTitle.value = draft.title || '';
+			if (dom.surveyPlacement instanceof HTMLSelectElement) dom.surveyPlacement.value = draft.placement || 'home';
+			if (dom.surveyArticleId instanceof HTMLInputElement) dom.surveyArticleId.value = draft.articleId || '';
+			renderAdminSurveyQuestions(draft);
+			renderAdminSurveyList();
+			return;
+		}
+		if (subview === 'events') {
+			renderAdminEventList();
+			return;
+		}
+		if (subview === 'integrations') {
+			renderAdminIntegrations();
+		}
+	}
+
+	function setupAdminExtras() {
+		const dom = adminExtrasDOM();
+		if (!dom.surveyTitle && !dom.eventDate && !dom.notionEnabled) return;
+
+		function updateDraftFromInputs() {
+			const d = loadSurveyDraft();
+			const next = {
+				...d,
+				title: dom.surveyTitle instanceof HTMLInputElement ? dom.surveyTitle.value.trim() : d.title,
+				placement: dom.surveyPlacement instanceof HTMLSelectElement ? dom.surveyPlacement.value : d.placement,
+				articleId: dom.surveyArticleId instanceof HTMLInputElement ? dom.surveyArticleId.value.trim() : d.articleId,
+				updatedAt: Date.now(),
+			};
+			saveSurveyDraft(next);
+			return next;
+		}
+
+		if (dom.surveyTitle instanceof HTMLInputElement) dom.surveyTitle.addEventListener('input', updateDraftFromInputs);
+		if (dom.surveyPlacement instanceof HTMLSelectElement) dom.surveyPlacement.addEventListener('change', updateDraftFromInputs);
+		if (dom.surveyArticleId instanceof HTMLInputElement) dom.surveyArticleId.addEventListener('input', updateDraftFromInputs);
+
+		dom.addTextQ?.addEventListener('click', () => {
+			const draft = updateDraftFromInputs();
+			draft.questions = safeArray(draft.questions);
+			draft.questions.push({ id: uid('Q'), type: 'text', title: '' });
+			saveSurveyDraft({ ...draft, updatedAt: Date.now() });
+			renderAdminSurveyQuestions(draft);
+			toast('記述式の設問を追加しました');
+		});
+		dom.addChoiceQ?.addEventListener('click', () => {
+			const draft = updateDraftFromInputs();
+			draft.questions = safeArray(draft.questions);
+			draft.questions.push({ id: uid('Q'), type: 'choice', title: '', options: [''] });
+			saveSurveyDraft({ ...draft, updatedAt: Date.now() });
+			renderAdminSurveyQuestions(draft);
+			toast('選択式の設問を追加しました');
+		});
+
+		dom.surveyQuestions?.addEventListener('click', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLElement)) return;
+			const rem = t.closest('[data-q-remove]')?.getAttribute('data-q-remove');
+			if (rem) {
+				const draft = updateDraftFromInputs();
+				draft.questions = safeArray(draft.questions).filter((q) => q && q.id !== rem);
+				saveSurveyDraft({ ...draft, updatedAt: Date.now() });
+				renderAdminSurveyQuestions(draft);
+				toast('設問を削除しました');
+			}
+		});
+
+		dom.surveyQuestions?.addEventListener('input', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLElement)) return;
+			const titleId = t.getAttribute('data-q-title');
+			const optId = t.getAttribute('data-q-options');
+			if (!titleId && !optId) return;
+			const draft = updateDraftFromInputs();
+			const qid = titleId || optId;
+			const q = safeArray(draft.questions).find((x) => x && x.id === qid);
+			if (!q) return;
+			if (titleId && t instanceof HTMLInputElement) q.title = t.value;
+			if (optId && t instanceof HTMLTextAreaElement && q.type === 'choice') {
+				q.options = t.value
+					.split(/\r?\n/)
+					.map((s) => s.trim())
+					.filter(Boolean);
+			}
+			saveSurveyDraft({ ...draft, updatedAt: Date.now() });
+		});
+
+		dom.surveyList?.addEventListener('click', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLElement)) return;
+			const edit = t.closest('[data-survey-edit]')?.getAttribute('data-survey-edit');
+			if (edit) {
+				const list = loadAdminSurveys();
+				const found = list.find((s) => s && s.id === edit);
+				if (found) {
+					saveSurveyDraft({ ...defaultSurveyDraft(), ...found, status: 'draft', updatedAt: Date.now() });
+					setSubView('admin', 'surveys');
+					renderAdminExtrasView('surveys');
+					toast('アンケートを下書きへ読み込みました');
+				}
+				return;
+			}
+			const unpub = t.closest('[data-survey-unpublish]')?.getAttribute('data-survey-unpublish');
+			if (unpub) {
+				const next = loadAdminSurveys().filter((s) => s && s.id !== unpub);
+				saveAdminSurveys(next);
+				renderAdminSurveyList();
+				toast('アンケートを非公開にしました');
+			}
+		});
+
+		dom.surveySave?.addEventListener('click', () => {
+			updateDraftFromInputs();
+			toast('下書きを保存しました');
+		});
+
+		dom.surveyPublish?.addEventListener('click', () => {
+			const draft = updateDraftFromInputs();
+			if (!String(draft.title || '').trim()) {
+				toast('タイトルを入力してください');
+				return;
+			}
+			if (!safeArray(draft.questions).length) {
+				toast('設問を1つ以上追加してください');
+				return;
+			}
+			if (draft.placement === 'article' && !String(draft.articleId || '').trim()) {
+				toast('記事IDを入力してください（記事詳細に設置する場合）');
+				return;
+			}
+			const list = loadAdminSurveys().filter((s) => s && s.id !== draft.id);
+			list.unshift({ ...draft, status: 'published', updatedAt: Date.now() });
+			saveAdminSurveys(list.slice(0, 50));
+			saveSurveyDraft(defaultSurveyDraft());
+			renderAdminExtrasView('surveys');
+			toast('アンケートを公開しました（デモ）');
+		});
+
+		// events
+		dom.eventAdd?.addEventListener('click', () => {
+			const date = dom.eventDate instanceof HTMLInputElement ? dom.eventDate.value : '';
+			const title = dom.eventTitle instanceof HTMLInputElement ? dom.eventTitle.value : '';
+			const tag = dom.eventTag instanceof HTMLInputElement ? dom.eventTag.value : '';
+			const evt = normalizeEvent({ date, title, tag, source: 'internal' });
+			if (!evt) {
+				toast('日付とタイトルは必須です');
+				return;
+			}
+			const list = loadAdminEvents();
+			list.push(evt);
+			saveAdminEvents(list);
+			renderAdminEventList();
+			renderCalendar();
+			if (dom.eventTitle instanceof HTMLInputElement) dom.eventTitle.value = '';
+			if (dom.eventTag instanceof HTMLInputElement) dom.eventTag.value = '';
+			toast('イベントを追加しました');
+		});
+
+		async function importCsvText(text) {
+			const parsed = parseEventCsv(text);
+			if (!parsed.length) {
+				toast('取り込める行がありませんでした');
+				return;
+			}
+			const list = loadAdminEvents();
+			list.push(...parsed);
+			saveAdminEvents(list);
+			renderAdminEventList();
+			renderCalendar();
+			toast(`CSVから${parsed.length}件取り込みました`);
+		}
+
+		dom.eventImport?.addEventListener('click', async () => {
+			if (dom.eventCsv instanceof HTMLTextAreaElement && dom.eventCsv.value.trim()) {
+				await importCsvText(dom.eventCsv.value);
+				return;
+			}
+			toast('CSVを貼り付けるか、ファイルを選択してください');
+		});
+
+		if (dom.eventCsvFile instanceof HTMLInputElement) {
+			dom.eventCsvFile.addEventListener('change', async () => {
+				const file = dom.eventCsvFile.files && dom.eventCsvFile.files[0];
+				if (!file) return;
+				await importCsvText(await file.text());
+				dom.eventCsvFile.value = '';
+			});
+		}
+
+		// integrations
+		function persistIntegrations() {
+			const v = loadIntegrations();
+			if (dom.notionEnabled instanceof HTMLInputElement) v.notionEnabled = !!dom.notionEnabled.checked;
+			if (dom.notionProxyUrl instanceof HTMLInputElement) v.notionProxyUrl = dom.notionProxyUrl.value.trim();
+			if (dom.notionDbId instanceof HTMLInputElement) v.notionDbId = dom.notionDbId.value.trim();
+			if (dom.coenEnabled instanceof HTMLInputElement) v.coenEnabled = !!dom.coenEnabled.checked;
+			if (dom.coenCalendarUrl instanceof HTMLInputElement) v.coenCalendarUrl = dom.coenCalendarUrl.value.trim();
+			saveIntegrations(v);
+			renderAdminIntegrations();
+		}
+
+		dom.notionEnabled?.addEventListener('change', persistIntegrations);
+		dom.notionProxyUrl?.addEventListener('input', persistIntegrations);
+		dom.notionDbId?.addEventListener('input', persistIntegrations);
+		dom.coenEnabled?.addEventListener('change', persistIntegrations);
+		dom.coenCalendarUrl?.addEventListener('input', persistIntegrations);
+
+		dom.notionSync?.addEventListener('click', () => {
+			const v = loadIntegrations();
+			if (!v.notionEnabled) {
+				toast('Notion連携がOFFです');
+				return;
+			}
+			if (!v.notionProxyUrl) {
+				toast('Notion同期URL（プロキシ）を入力してください');
+				return;
+			}
+			v.lastSyncAt = Date.now();
+			v.lastSyncStatus = 'Notion同期（デモ）: 設定を保存しました';
+			saveIntegrations(v);
+			renderAdminIntegrations();
+			toast('Notion同期を実行しました（デモ）');
+		});
+
+		dom.coenSync?.addEventListener('click', async () => {
+			const v = loadIntegrations();
+			if (!v.coenEnabled) {
+				toast('coen連携がOFFです');
+				return;
+			}
+			if (!v.coenCalendarUrl) {
+				toast('coenイベントURLを入力してください');
+				return;
+			}
+			try {
+				const res = await fetch(v.coenCalendarUrl, { cache: 'no-store' });
+				if (!res.ok) throw new Error('fetch_failed');
+				const json = await res.json();
+				if (!Array.isArray(json)) throw new Error('invalid_format');
+				v.lastExternalEvents = json.map((x) => ({ ...x, source: 'coen' }));
+				v.lastSyncAt = Date.now();
+				v.lastSyncStatus = `coen同期: ${json.length}件（デモ）`;
+				saveIntegrations(v);
+				renderAdminIntegrations();
+				renderCalendar();
+				toast('coenイベントを統合しました（デモ）');
+			} catch {
+				v.lastSyncAt = Date.now();
+				v.lastSyncStatus = 'coen同期に失敗しました（URL/形式を確認）';
+				saveIntegrations(v);
+				renderAdminIntegrations();
+				toast('coen同期に失敗しました（デモ）');
+			}
+		});
+	}
 
 	function loadMatchHistory() {
 		const raw = window.localStorage.getItem(STORAGE_KEYS.matchHistory);
@@ -82,6 +1607,8 @@
 		const pool = employees.filter((e) => e && e.id && e.id !== meId);
 		const fragments = [];
 
+		const articleSeeds = visibleArticles().slice(0, 12);
+
 		pool.forEach((e) => {
 			const p = e.profile || {};
 			const tags = Array.isArray(e.skills) ? e.skills.slice(0, 2) : [];
@@ -102,6 +1629,17 @@
 			}
 			if (p.smallTalk) {
 				fragments.push({ employeeId: e.id, tags, text: `世間話: ${p.smallTalk}`, kind: 'smallTalk' });
+			}
+
+			// 記事由来のカケラ（デモ）: スキル/部署に近い記事タイトルを会話の入口として提示
+			if (articleSeeds.length) {
+				const skillSet = new Set(tags.map((x) => String(x || '').trim()).filter(Boolean));
+				let pick = articleSeeds.find((a) => a && safeArray(a.tags).some((t) => skillSet.has(String(t))));
+				if (!pick) pick = articleSeeds[Math.floor(Math.random() * articleSeeds.length)];
+				if (pick) {
+					const title = String(pick.title || '').replace(/^\[DUMMY\]\s*/i, '').trim();
+					fragments.push({ employeeId: e.id, tags, text: `記事: ${title}`, kind: 'article', articleId: pick.id });
+				}
 			}
 			if (!hobbies.length && !p.hometown && !p.localTalk && !p.smallTalk && tags.length) {
 				fragments.push({ employeeId: e.id, tags, text: `最近気になること: ${tags.join(' / ')}`, kind: 'skills' });
@@ -142,11 +1680,23 @@
 		const rot = (Math.random() * 6 - 3).toFixed(2);
 		const drift = (Math.random() * 24 - 12).toFixed(2);
 		const tagHTML = (frag.tags || []).map((t) => `<span class="seren-tag">${escapeHtml(t)}</span>`).join('');
+		const kindLabel =
+			frag.kind === 'hobbies'
+				? '趣味'
+				: frag.kind === 'smallTalk'
+					? '世間話'
+					: frag.kind === 'hometown'
+						? '出身'
+						: frag.kind === 'localTalk'
+							? '地元ネタ'
+							: frag.kind === 'article'
+								? '記事'
+								: 'スキル';
 		root.innerHTML = `
 			<div class="seren-card single in" style="--rot:${rot}deg; --drift:${drift}px; --x:50%" data-seren-card>
-				<div class="seren-tags" aria-label="ヒント">${tagHTML}</div>
+				<div class="seren-tags" aria-label="ヒント"><span class="pill cool seren-kind">${escapeHtml(kindLabel)}</span>${tagHTML}</div>
 				<div class="seren-text">${escapeHtml(frag.text)}</div>
-				<button class="seren-burn" type="button" data-seren-burn="1" data-seren-emp="${escapeHtml(frag.employeeId)}" data-seren-text="${escapeHtml(frag.text)}" aria-label="燃やす">🔥</button>
+				<button class="seren-burn" type="button" data-seren-burn="1" data-seren-emp="${escapeHtml(frag.employeeId)}" data-seren-text="${escapeHtml(frag.text)}" data-seren-kind="${escapeHtml(String(frag.kind || ''))}" aria-label="燃やす">🔥</button>
 			</div>
 		`.trim();
 
@@ -173,7 +1723,23 @@
 				const last = new Date(e.last);
 				const lastTxt = `${last.getMonth() + 1}/${last.getDate()} ${String(last.getHours()).padStart(2, '0')}:${String(last.getMinutes()).padStart(2, '0')}`;
 				const skillBadges = (e.skills || []).map((s) => `<span class="tag">${escapeHtml(s)}</span>`).join('');
-				const note = h.text ? `<div class="emp-note">ハートしたカケラ: ${escapeHtml(h.text)}</div>` : '';
+				const kindLabel =
+					h.kind === 'hobbies'
+						? '趣味'
+						: h.kind === 'smallTalk'
+							? '世間話'
+							: h.kind === 'hometown'
+								? '出身'
+								: h.kind === 'localTalk'
+									? '地元ネタ'
+									: h.kind === 'article'
+										? '記事'
+										: h.kind === 'skills'
+											? 'スキル'
+											: '';
+				const note = h.text
+					? `<div class="emp-note">ハートしたカケラ: ${escapeHtml(h.text)}${kindLabel ? ` <span class="pill cool" style="margin-left:8px;">${escapeHtml(kindLabel)}</span>` : ''}</div>`
+					: '';
 
 				return `
 					<article class="emp" aria-label="開示カード">
@@ -738,10 +2304,70 @@
 			.replace(/'/g, '&#39;');
 	}
 
+	function ensureArticleReactions(article) {
+		if (!article || typeof article !== 'object') return { like: 0, thanks: 0, comment: 0, heat: 0 };
+		const r = article.reactions && typeof article.reactions === 'object' ? article.reactions : {};
+		const next = {
+			like: Number.isFinite(Number(r.like)) ? Math.max(0, Math.round(Number(r.like))) : 0,
+			thanks: Number.isFinite(Number(r.thanks)) ? Math.max(0, Math.round(Number(r.thanks))) : 0,
+			comment: Number.isFinite(Number(r.comment)) ? Math.max(0, Math.round(Number(r.comment))) : 0,
+			heat: Number.isFinite(Number(r.heat)) ? Math.max(0, Math.round(Number(r.heat))) : 0,
+		};
+		article.reactions = next;
+		return next;
+	}
+
 	function computeTemp(article) {
-		const reactions = article.reactions.like + article.reactions.thanks + article.reactions.comment;
-		const reactionScore = clamp(reactions * 2, 0, 100);
-		return Math.round(article.views * 0.5 + article.coverage * 0.3 + reactionScore * 0.2);
+		const r = ensureArticleReactions(article);
+		// 炎(heat)は「軽い反応」だが、関心の表明として強めに効かせる（デモ）
+		const reactions = r.like + r.thanks + r.comment;
+		const heat = r.heat;
+		const reactionScore = clamp(reactions * 2 + heat * 6, 0, 100);
+		const computed = Math.round(article.views * 0.45 + article.coverage * 0.25 + reactionScore * 0.30);
+		const manual = Number(article.manualTemp);
+		if (Number.isFinite(manual)) return clamp(Math.max(computed, Math.round(manual)), 0, 100);
+		return computed;
+	}
+
+	function viewerDept() {
+		return String(employees[0]?.dept || '').trim();
+	}
+
+	function viewerProjects() {
+		const fromEmployee = employees[0]?.profile?.projects;
+		if (Array.isArray(fromEmployee) && fromEmployee.length) return fromEmployee.map((s) => String(s || '').trim()).filter(Boolean);
+		const saved = safeJsonParse(window.localStorage.getItem(STORAGE_KEYS.myProfile) || 'null', null);
+		const projects = saved && typeof saved === 'object' ? saved.projects : null;
+		if (Array.isArray(projects) && projects.length) return projects.map((s) => String(s || '').trim()).filter(Boolean);
+		const raw = saved && typeof saved === 'object' ? saved.projectsRaw : '';
+		return normalizeProjects(raw);
+	}
+
+	function isArticleVisibleToViewer(a) {
+		if (!a || typeof a !== 'object') return false;
+		const targeting = a.targeting && typeof a.targeting === 'object' ? a.targeting : null;
+		const depts = targeting ? safeArray(targeting.depts).filter(Boolean) : [];
+		const projects = targeting ? safeArray(targeting.projects).filter(Boolean) : [];
+		if (depts.length === 0 && projects.length === 0) return true;
+
+		if (depts.length) {
+			const dept = viewerDept();
+			if (!dept || !depts.includes(dept)) return false;
+		}
+
+		if (projects.length) {
+			const mine = viewerProjects();
+			if (!mine.length) return false;
+			const mineSet = new Set(mine);
+			const ok = projects.some((p) => mineSet.has(String(p)));
+			if (!ok) return false;
+		}
+
+		return true;
+	}
+
+	function visibleArticles() {
+		return articles.filter(isArticleVisibleToViewer);
 	}
 
 	function computePersonTemp(person) {
@@ -774,17 +2400,620 @@
 	}
 
 	function setRoute(route) {
-		const r = normalizeRoute(route);
+		const desired = normalizeRoute(route);
+		const authed = Boolean(state.auth && state.auth.isLoggedIn);
+		const r = !authed && desired !== 'login' ? 'login' : desired;
 		state.route = r;
 		syncActiveGlobalNav(r);
 		$$('.route').forEach((sec) => {
 			const isActive = sec.dataset.route === r;
 			sec.hidden = !isActive;
 		});
+		applyAuthUI();
+		if (r === 'admin') {
+			renderAdmin();
+		}
+		if (r === 'admin-analytics') {
+			renderAdminAnalytics();
+		}
+		if (r === 'login') {
+			renderLogin();
+		}
 		ensureDefaultSubView(r);
 		document.documentElement.style.scrollBehavior = 'smooth';
 		window.scrollTo({ top: 0 });
 		window.setTimeout(() => (document.documentElement.style.scrollBehavior = ''), 10);
+	}
+
+	function defaultAuthFromDemo() {
+		return {
+			isLoggedIn: true,
+			user: {
+				name: employees?.[0]?.name || 'デモユーザー',
+				email: 'admin@company.co.jp',
+				isAdmin: true,
+			},
+		};
+	}
+
+	function loadAuth() {
+		const raw = window.localStorage.getItem(STORAGE_KEYS.auth);
+		const v = safeJsonParse(raw || 'null', null);
+		if (!v || typeof v !== 'object') return defaultAuthFromDemo();
+		const user = v.user && typeof v.user === 'object' ? v.user : null;
+		return {
+			isLoggedIn: Boolean(v.isLoggedIn),
+			user: user
+				? {
+					name: String(user.name || employees?.[0]?.name || 'ユーザー'),
+					email: String(user.email || ''),
+					isAdmin: Boolean(user.isAdmin),
+				}
+				: null,
+		};
+	}
+
+	function saveAuth(auth) {
+		window.localStorage.setItem(STORAGE_KEYS.auth, JSON.stringify(auth));
+	}
+
+	function applyAuthUI() {
+		const authed = Boolean(state.auth && state.auth.isLoggedIn);
+		document.body.classList.toggle('auth-logged-out', !authed);
+		const btn = document.getElementById('signOutBtn');
+		if (btn) btn.hidden = !authed;
+
+		// マイページの管理者ゲート
+		const gate = document.getElementById('myAdminGate');
+		const isAdmin = Boolean(state.auth?.user?.isAdmin);
+		if (gate) gate.hidden = !(authed && isAdmin);
+	}
+
+	function signOut() {
+		state.auth = { isLoggedIn: false, user: null };
+		saveAuth(state.auth);
+		applyAuthUI();
+		setRoute('login');
+		toast('サインアウトしました');
+	}
+
+	function signInWithCredentials({ email, password, remember }) {
+		const e = String(email || '').trim();
+		const p = String(password || '').trim();
+		if (!e || !p) return { ok: false, message: 'メールアドレスとパスワードを入力してください' };
+		const isAdmin = /admin/i.test(e);
+		state.auth = {
+			isLoggedIn: true,
+			user: {
+				name: employees?.[0]?.name || e.split('@')[0] || 'ユーザー',
+				email: e,
+				isAdmin,
+			},
+		};
+		if (remember) saveAuth(state.auth);
+		else saveAuth({ isLoggedIn: true, user: { ...state.auth.user, remember: false } });
+		applyAuthUI();
+		return { ok: true };
+	}
+
+	function renderLogin() {
+		applyAuthUI();
+		const form = document.getElementById('loginForm');
+		if (!(form instanceof HTMLFormElement)) return;
+
+		const emailEl = document.getElementById('loginEmail');
+		const passEl = document.getElementById('loginPassword');
+		const rememberEl = document.getElementById('loginRemember');
+		const toggleBtn = document.getElementById('togglePasswordBtn');
+		const forgot = document.getElementById('forgotPasswordLink');
+		const ssoBtn = document.getElementById('ssoLoginBtn');
+
+		if (toggleBtn) {
+			toggleBtn.addEventListener('click', () => {
+				if (!(passEl instanceof HTMLInputElement)) return;
+				const next = passEl.type === 'password' ? 'text' : 'password';
+				passEl.type = next;
+				toggleBtn.textContent = next === 'password' ? '表示' : '非表示';
+			});
+		}
+		if (forgot) {
+			forgot.addEventListener('click', (e) => {
+				e.preventDefault();
+				toast('パスワード再設定の案内を送信しました（デモ）');
+			});
+		}
+		if (ssoBtn) {
+			ssoBtn.addEventListener('click', () => {
+				state.auth = defaultAuthFromDemo();
+				saveAuth(state.auth);
+				applyAuthUI();
+				setRoute('home');
+				toast('SSOでログインしました（デモ）');
+			});
+		}
+
+		form.addEventListener(
+			'submit',
+			(e) => {
+				e.preventDefault();
+				const email = emailEl instanceof HTMLInputElement ? emailEl.value : '';
+				const password = passEl instanceof HTMLInputElement ? passEl.value : '';
+				const remember = rememberEl instanceof HTMLInputElement ? Boolean(rememberEl.checked) : true;
+				const res = signInWithCredentials({ email, password, remember });
+				if (!res.ok) {
+					toast(res.message || 'ログインに失敗しました');
+					return;
+				}
+				toast('ログインしました');
+				setRoute('home');
+			},
+			{ once: true }
+		);
+	}
+
+	function parseISOToMs(iso) {
+		const s = String(iso || '').trim();
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return NaN;
+		const [y, m, d] = s.split('-').map((v) => Number(v));
+		return new Date(y, m - 1, d).getTime();
+	}
+
+	function daysAgoMs(days) {
+		return Date.now() - Math.max(0, Number(days) || 0) * 24 * 60 * 60 * 1000;
+	}
+
+	function periodArticles({ fromMs, toMs }) {
+		const list = safeArray(articles);
+		const inRange = list.filter((a) => {
+			const t = parseISOToMs(a.date);
+			if (!Number.isFinite(t)) return false;
+			return t >= fromMs && t <= toMs;
+		});
+		return inRange.length ? inRange : list;
+	}
+
+	function computeOrgMetrics(list) {
+		const arr = safeArray(list);
+		const n = Math.max(1, arr.length);
+		let viewsSum = 0;
+		let coverageSum = 0;
+		let tempSum = 0;
+		let reactionsSum = 0;
+		arr.forEach((a) => {
+			ensureArticleReactions(a);
+			viewsSum += Number(a.views) || 0;
+			coverageSum += Number(a.coverage) || 0;
+			tempSum += computeTemp(a);
+			const r = a.reactions || { like: 0, thanks: 0, comment: 0, heat: 0 };
+			reactionsSum += (Number(r.like) || 0) + (Number(r.thanks) || 0) + (Number(r.comment) || 0) + (Number(r.heat) || 0);
+		});
+		return {
+			viewsAvg: Math.round(viewsSum / n),
+			coverageAvg: Math.round(coverageSum / n),
+			tempAvg: Math.round(tempSum / n),
+			reactionsPerArticle: Math.round(reactionsSum / n),
+		};
+	}
+
+	function deltaLabel(current, previous) {
+		if (!Number.isFinite(current) || !Number.isFinite(previous)) return '前月比 —';
+		const d = Math.round(current - previous);
+		const sign = d > 0 ? '+' : '';
+		return `前月比 ${sign}${d}`;
+	}
+
+	function targetLabel(current, target) {
+		if (!Number.isFinite(current) || !Number.isFinite(target)) return '目標差 —';
+		const d = Math.round(current - target);
+		const sign = d > 0 ? '+' : '';
+		return `目標差 ${sign}${d}`;
+	}
+
+	function buildInsight({ viewsAvg, coverageAvg, tempAvg, reactionsPerArticle }) {
+		// 簡易の解釈ルール（デモ）
+		const v = Number(viewsAvg) || 0;
+		const c = Number(coverageAvg) || 0;
+		const t = Number(tempAvg) || 0;
+		const r = Number(reactionsPerArticle) || 0;
+
+		if (v < 55) {
+			return {
+				heat: clamp(35 + v * 0.4, 0, 100),
+				title: '仮説: 届いていない（入口設計の課題）',
+				text: `閲覧率が低めです。配信タイミング/通知導線/タイトルで「入口の摩擦」を下げると改善余地があります（デモ）。`,
+			};
+		}
+		if (v >= 55 && c < 55) {
+			return {
+				heat: clamp(45 + c * 0.5, 0, 100),
+				title: '仮説: 届いているが読み切られていない（構成の課題）',
+				text: `閲覧はされるが網羅率が伸びません。冒頭の要点/見出し構成/図解で「理解の到達」を上げる余地があります（デモ）。`,
+			};
+		}
+		if (t < 55 || r < 6) {
+			return {
+				heat: clamp(40 + t * 0.6, 0, 100),
+				title: '仮説: 読まれているが共感・行動が弱い（刺さりの課題）',
+				text: `温度/反応が伸びません。問いかけ/次アクション/現場事例で「共感と行動」を引き出す余地があります（デモ）。`,
+			};
+		}
+		return {
+			heat: clamp(60 + t * 0.4, 0, 100),
+			title: '仮説: 健康（維持しつつ伸ばせる）',
+			text: `閲覧・網羅・温度がバランス良い状態です。テーマの当たり（タグ上位）を増やし、再現性を高めるのが次の一手です（デモ）。`,
+		};
+	}
+
+	function deptList() {
+		const set = new Set();
+		safeArray(employees).forEach((e) => {
+			const d = String(e?.dept || '').trim();
+			if (d) set.add(d);
+		});
+		return Array.from(set);
+	}
+
+	function isImportantArticle(a) {
+		const cat = String(a?.category || '').trim();
+		const manual = Number(a?.manualTemp);
+		if (cat.includes('代表') || cat.includes('経営')) return true;
+		if (Number.isFinite(manual) && manual >= 70) return true;
+		return false;
+	}
+
+	function importanceScore(a) {
+		const manual = Number(a?.manualTemp);
+		const base = isImportantArticle(a) ? 80 : 60;
+		if (Number.isFinite(manual)) return clamp(Math.max(base, Math.round(manual)), 0, 100);
+		return base;
+	}
+
+	function computeTopTags(list, limit = 6) {
+		const score = new Map();
+		safeArray(list).forEach((a) => {
+			ensureArticleReactions(a);
+			const r = a.reactions || { like: 0, thanks: 0, comment: 0, heat: 0 };
+			const s = (Number(r.like) || 0) * 2 + (Number(r.thanks) || 0) * 2 + (Number(r.comment) || 0) * 3 + (Number(r.heat) || 0) * 6;
+			safeArray(a.tags).forEach((t) => {
+				const key = String(t || '').trim();
+				if (!key) return;
+				score.set(key, (score.get(key) || 0) + s);
+			});
+		});
+		return Array.from(score.entries())
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, Math.max(1, limit));
+	}
+
+	function segmentEmployees() {
+		const list = safeArray(employees);
+		const now = Date.now();
+		let unread = 0;
+		let sensitive = 0;
+		let theme = 0;
+
+		list.forEach((e) => {
+			const last = Number(new Date(e?.last).getTime());
+			const lastAgeDays = Number.isFinite(last) ? (now - last) / (24 * 60 * 60 * 1000) : 999;
+			const personTemp = computePersonTemp(e);
+			const cov = Number(e?.coverage) || 0;
+			if (lastAgeDays >= 21 || (personTemp < 40 && cov < 45)) {
+				unread += 1;
+				return;
+			}
+			if (lastAgeDays <= 7 || personTemp >= 70) {
+				sensitive += 1;
+				return;
+			}
+			theme += 1;
+		});
+
+		return {
+			total: Math.max(1, list.length),
+			unread,
+			sensitive,
+			theme,
+		};
+	}
+
+	function deptStatsForPeriod(list) {
+		const depts = deptList();
+		const buckets = new Map(depts.map((d) => [d, { views: [], coverage: [], temp: [] }]));
+		const allDepts = depts;
+
+		safeArray(list).forEach((a) => {
+			const targetDepts = safeArray(a?.targeting?.depts).filter(Boolean);
+			const targets = targetDepts.length ? targetDepts : allDepts;
+			const v = Number(a.views) || 0;
+			const c = Number(a.coverage) || 0;
+			const t = computeTemp(a);
+			targets.forEach((d) => {
+				if (!buckets.has(d)) buckets.set(d, { views: [], coverage: [], temp: [] });
+				buckets.get(d).views.push(v);
+				buckets.get(d).coverage.push(c);
+				buckets.get(d).temp.push(t);
+			});
+		});
+
+		const out = new Map();
+		buckets.forEach((b, d) => {
+			const n = Math.max(1, b.views.length);
+			out.set(d, {
+				views: Math.round(b.views.reduce((s, x) => s + x, 0) / n),
+				coverage: Math.round(b.coverage.reduce((s, x) => s + x, 0) / n),
+				temp: Math.round(b.temp.reduce((s, x) => s + x, 0) / n),
+				count: b.views.length,
+			});
+		});
+		return out;
+	}
+
+	function renderAdminAnalytics() {
+		const root = document.querySelector('.route[data-route="admin-analytics"]');
+		if (!root) return;
+		const elView = document.getElementById('anaViewRate');
+		const elCov = document.getElementById('anaCoverage');
+		const elTemp = document.getElementById('anaTemp');
+		const elViewDelta = document.getElementById('anaViewDelta');
+		const elCovDelta = document.getElementById('anaCoverageDelta');
+		const elTempDelta = document.getElementById('anaTempDelta');
+		const elViewTarget = document.getElementById('anaViewTarget');
+		const elCovTarget = document.getElementById('anaCoverageTarget');
+		const elTempTarget = document.getElementById('anaTempTarget');
+		const insightPill = document.getElementById('anaInsightPill');
+		const insightText = document.getElementById('anaInsightText');
+		const tagTopList = document.getElementById('tagTopList');
+		const alertsEl = document.getElementById('bottleneckAlerts');
+		const heatGapEl = document.getElementById('heatGapMap');
+
+		if (!elView || !elCov || !elTemp || !elViewDelta || !elCovDelta || !elTempDelta || !tagTopList || !alertsEl || !heatGapEl) return;
+
+		const now = Date.now();
+		const toMs = now;
+		const fromMs = daysAgoMs(30);
+		const prevFromMs = daysAgoMs(60);
+		const prevToMs = daysAgoMs(30);
+		const curArticles = periodArticles({ fromMs, toMs });
+		const prevArticles = periodArticles({ fromMs: prevFromMs, toMs: prevToMs });
+		const cur = computeOrgMetrics(curArticles);
+		const prev = computeOrgMetrics(prevArticles);
+
+		// Targets (デモ)
+		const target = {
+			views: 70,
+			coverage: 65,
+			temp: 60,
+		};
+
+		elView.textContent = String(cur.viewsAvg);
+		elCov.textContent = String(cur.coverageAvg);
+		elTemp.textContent = String(cur.tempAvg);
+		elViewDelta.textContent = deltaLabel(cur.viewsAvg, prev.viewsAvg);
+		elCovDelta.textContent = deltaLabel(cur.coverageAvg, prev.coverageAvg);
+		elTempDelta.textContent = deltaLabel(cur.tempAvg, prev.tempAvg);
+		if (elViewTarget) elViewTarget.textContent = targetLabel(cur.viewsAvg, target.views);
+		if (elCovTarget) elCovTarget.textContent = targetLabel(cur.coverageAvg, target.coverage);
+		if (elTempTarget) elTempTarget.textContent = targetLabel(cur.tempAvg, target.temp);
+
+		const insight = buildInsight(cur);
+		if (insightPill) {
+			insightPill.textContent = insight.title;
+			insightPill.style.setProperty('--p', String(clamp(insight.heat, 0, 100)));
+			insightPill.className = `pill ${insight.heat >= 70 ? 'heat' : insight.heat >= 45 ? 'warm' : 'cool'}`;
+		}
+		if (insightText) insightText.textContent = insight.text;
+
+		// Tag top list
+		const topTags = computeTopTags(curArticles, 6);
+		tagTopList.innerHTML = '';
+		topTags.forEach(([tag, score], i) => {
+			const li = document.createElement('li');
+			li.className = 'rank-item';
+			li.innerHTML = `
+				<div class="rank-link" style="cursor: default;">
+					<span class="rank-title">${i + 1}. ${escapeHtml(tag)}</span>
+					<span class="rank-meta"><span class="pill warm" style="--p:${clamp(Math.round(score / 6), 0, 100)}">反応 ${Math.round(score)}</span><span>刺さり</span></span>
+				</div>
+			`;
+			tagTopList.appendChild(li);
+		});
+		if (!topTags.length) {
+			const li = document.createElement('li');
+			li.className = 'mini-note';
+			li.textContent = '反応データがまだ少ないため、タグ上位は集計中です（デモ）。';
+			tagTopList.appendChild(li);
+		}
+
+		// Segment chart
+		renderSegmentChart();
+
+		function renderSegmentChart() {
+			const ctx = document.getElementById('segmentChart');
+			const fallback = document.getElementById('segmentChartFallback');
+			if (!ctx) return;
+			const seg = segmentEmployees();
+			const data = [seg.sensitive, seg.theme, seg.unread];
+			const labels = ['情報に敏感な層', '特定テーマ反応層', '未読・低関心層'];
+
+			if (!window.Chart) {
+				if (fallback) {
+					fallback.hidden = false;
+					fallback.textContent = `${labels[0]}: ${data[0]}人 / ${labels[1]}: ${data[1]}人 / ${labels[2]}: ${data[2]}人`; // デモ
+				}
+				return;
+			}
+
+			try {
+				if (state.analytics && state.analytics.chart) {
+					state.analytics.chart.destroy();
+					state.analytics.chart = null;
+				}
+			} catch {
+				// ignore
+			}
+
+			// eslint-disable-next-line no-new
+			state.analytics.chart = new window.Chart(ctx, {
+				type: 'doughnut',
+				data: {
+					labels,
+					datasets: [
+						{
+							label: '社員セグメント',
+							data,
+							backgroundColor: ['rgba(42, 127, 255, 0.35)', 'rgba(11, 76, 207, 0.32)', 'rgba(15, 35, 75, 0.16)'],
+							borderColor: ['rgba(42, 127, 255, 0.90)', 'rgba(11, 76, 207, 0.92)', 'rgba(15, 35, 75, 0.28)'],
+							borderWidth: 1,
+						},
+					],
+				},
+				options: {
+					responsive: true,
+					maintainAspectRatio: false,
+					plugins: {
+						legend: { position: 'bottom', labels: { boxWidth: 12, boxHeight: 12 } },
+						tooltip: { enabled: true },
+					},
+				},
+			});
+		}
+
+		// Bottleneck alerts
+		const curDept = deptStatsForPeriod(curArticles);
+		const prevDept = deptStatsForPeriod(prevArticles);
+		const depts = deptList();
+		const alerts = [];
+
+		depts.forEach((d) => {
+			const curD = curDept.get(d);
+			const prevD = prevDept.get(d);
+			if (!curD) return;
+			if (prevD && Number.isFinite(prevD.views) && curD.views <= prevD.views - 12) {
+				alerts.push({
+					kind: '閲覧率急落',
+					dept: d,
+					msg: `前月比 ${curD.views - prevD.views}%（${prevD.views}% → ${curD.views}%）`,
+					severity: 'high',
+				});
+			}
+		});
+
+		// Exec message coverage low
+		const important = safeArray(curArticles).filter(isImportantArticle);
+		if (important.length) {
+			depts.forEach((d) => {
+				// 対象部署向け（targeting）を優先し、なければ全社扱いで平均
+				const list = important.filter((a) => {
+					const t = safeArray(a?.targeting?.depts).filter(Boolean);
+					return !t.length || t.includes(d);
+				});
+				if (!list.length) return;
+				const avg = Math.round(list.reduce((s, a) => s + (Number(a.coverage) || 0), 0) / Math.max(1, list.length));
+				if (avg < 55) {
+					alerts.push({
+						kind: '経営メッセージ低到達',
+						dept: d,
+						msg: `重要記事の網羅率平均 ${avg}%`,
+						severity: avg < 45 ? 'high' : 'mid',
+					});
+				}
+			});
+		}
+
+		alertsEl.innerHTML = '';
+		alerts
+			.slice()
+			.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'high' ? -1 : 1))
+			.slice(0, 8)
+			.forEach((a) => {
+				const li = document.createElement('li');
+				li.className = 'alert';
+				const tone = a.severity === 'high' ? 'hot' : 'warm';
+				li.innerHTML = `
+					<div class="alert-head">
+						<span class="pill ${tone}">${escapeHtml(a.kind)}</span>
+						<span class="muted small">${escapeHtml(a.dept)}</span>
+					</div>
+					<div class="alert-body">${escapeHtml(a.msg)}</div>
+				`;
+				alertsEl.appendChild(li);
+			});
+		if (!alerts.length) {
+			const li = document.createElement('li');
+			li.className = 'alert';
+			li.innerHTML = `<div class="alert-body">いまは大きな急落/低到達の兆候は検出されていません（デモ）。</div>`;
+			alertsEl.appendChild(li);
+		}
+
+		// Heat gap map
+		renderHeatGapMap();
+
+		function renderHeatGapMap() {
+			const depts = deptList();
+			const importantAll = safeArray(articles).filter(isImportantArticle);
+			const cols = importantAll
+				.map((a) => ({
+					id: a.id,
+					title: String(a.title || '（無題）'),
+					importance: importanceScore(a),
+					actual: computeTemp(a),
+				}))
+				.sort((a, b) => (b.importance - b.actual) - (a.importance - a.actual))
+				.slice(0, 3);
+
+			heatGapEl.innerHTML = '';
+			if (!cols.length || !depts.length) {
+				heatGapEl.innerHTML = `<div class="mini-note" style="padding:10px;">重要記事または部署データが不足しているため、マップは集計中です（デモ）。</div>`;
+				return;
+			}
+
+			const head = document.createElement('div');
+			head.className = 'heat-gap-row';
+			head.innerHTML = `
+				<div class="heat-gap-cell"><div class="heat-gap-head">部署</div></div>
+				${cols
+					.map((c) => {
+						const short = c.title.length > 16 ? c.title.slice(0, 16) + '…' : c.title;
+						return `<div class="heat-gap-cell"><div class="heat-gap-head">重要記事</div><div style="font-weight:900;">${escapeHtml(short)}</div></div>`;
+					})
+					.join('')}
+			`;
+			heatGapEl.appendChild(head);
+
+			// dept engagement proxy
+			const deptEng = new Map();
+			depts.forEach((d) => {
+				const list = safeArray(employees).filter((e) => String(e?.dept || '').trim() === d);
+				const avg = Math.round(list.reduce((s, e) => s + computePersonTemp(e), 0) / Math.max(1, list.length));
+				deptEng.set(d, avg);
+			});
+
+			depts.slice(0, 8).forEach((d) => {
+				const row = document.createElement('div');
+				row.className = 'heat-gap-row';
+				const deptTemp = deptEng.get(d) ?? 50;
+				row.innerHTML = `<div class="heat-gap-cell">${escapeHtml(d)}<div class="muted small">現場温度 ${deptTemp}%</div></div>`;
+				cols.forEach((c) => {
+					const expected = c.importance;
+					const actual = clamp(Math.round(c.actual * 0.65 + deptTemp * 0.35), 0, 100);
+					const gap = Math.round(expected - actual);
+					const tone = gap >= 25 ? 'hot' : gap >= 12 ? 'warm' : 'cool';
+					const cell = document.createElement('div');
+					cell.className = 'heat-gap-cell';
+					cell.innerHTML = `
+						<div class="heat-gap-metric">
+							<span class="pill heat" style="--p:${expected}">期待 ${expected}%</span>
+							<span class="pill ${tone}" style="--p:${clamp(actual, 0, 100)}">実績 ${actual}%</span>
+						</div>
+						<div class="muted small" style="margin-top:6px;">ギャップ ${gap > 0 ? '+' : ''}${gap}</div>
+					`;
+					row.appendChild(cell);
+				});
+				heatGapEl.appendChild(row);
+			});
+		}
+
+		state.analytics.lastRenderedAt = Date.now();
 	}
 
 	function syncActiveGlobalNav(route) {
@@ -823,6 +3052,10 @@
 		if (r === 'members') {
 			renderMatches();
 		}
+		if (r === 'admin') {
+			if (subview === 'articles') renderAdmin();
+			else renderAdminExtrasView(subview);
+		}
 	}
 
 	function ensureDefaultSubView(route) {
@@ -850,8 +3083,10 @@
 	}
 
 	function buildTagOptions() {
-		const tags = Array.from(new Set(articles.flatMap((a) => a.tags))).sort();
+		const tags = Array.from(new Set(visibleArticles().flatMap((a) => a.tags))).sort();
 		const sel = $('#tagSelect');
+		// 先頭の「（すべて）」を残して再構築
+		sel.innerHTML = '<option value="">（すべて）</option>';
 		tags.forEach((t) => {
 			const opt = document.createElement('option');
 			opt.value = t;
@@ -863,8 +3098,9 @@
 	function renderPopular() {
 		const list = $('#popularList');
 		list.innerHTML = '';
-		const sorted = [...articles].sort((a, b) => computeTemp(b) - computeTemp(a)).slice(0, 3);
+		const sorted = [...visibleArticles()].sort((a, b) => computeTemp(b) - computeTemp(a)).slice(0, 3);
 		sorted.forEach((a) => {
+			ensureArticleReactions(a);
 			const temp = computeTemp(a);
 			const li = document.createElement('li');
 			li.className = 'rank-item';
@@ -881,7 +3117,7 @@
 	function renderMetricsTable() {
 		const tbody = $('#articleMetricsTable tbody');
 		tbody.innerHTML = '';
-		articles
+		visibleArticles()
 			.map((a) => ({ ...a, temp: computeTemp(a) }))
 			.sort((a, b) => b.temp - a.temp)
 			.forEach((a) => {
@@ -899,7 +3135,9 @@
 	}
 
 	function articleCardHTML(a) {
+		ensureArticleReactions(a);
 		const temp = computeTemp(a);
+		const hotBadge = temp >= 75 || (a.reactions && a.reactions.heat >= 5) ? `<span class="pill heat" style="--p:${temp}" title="Hot">🔥 Hot</span>` : '';
 		const thumb = a.type === 'video' ? 'VIDEO' : a.type === 'image' ? 'IMAGE' : 'TEXT';
 		const tagBadges = a.tags.map((t) => `<span class="tag">${t}</span>`).join('');
 		const dummyBadge = a.dummy || String(a.id).startsWith('DUMMY_') ? `<span class="dummy-badge" aria-label="DUMMYデータ">DUMMY</span>` : '';
@@ -916,6 +3154,7 @@
 						<time datetime="${a.date}">${formatDate(a.date)}</time>
 						<span class="dot" aria-hidden="true">•</span>
 						<span class="pill heat" style="--p:${temp}" title="温度スコア（関心の指標）">温度 ${temp}%</span>
+						${hotBadge}
 					</div>
 					<h3 class="card-title">${a.title}</h3>
 					<p class="card-excerpt">${a.excerpt}</p>
@@ -959,7 +3198,7 @@
 
 	function renderArticles() {
 		const root = $('#articleList');
-		const filtered = sortArticles(applyArticleFilter(articles));
+		const filtered = sortArticles(applyArticleFilter(visibleArticles()));
 		root.innerHTML = filtered.map(articleCardHTML).join('');
 		if (filtered.length === 0) {
 			root.innerHTML = `<div class="empty">一致する記事がありません。検索条件をゆるめてみてください。</div>`;
@@ -969,12 +3208,20 @@
 	function openArticle(id) {
 		const a = articles.find((x) => x.id === id);
 		if (!a) return;
+		if (!isArticleVisibleToViewer(a)) {
+			toast('このユーザーには表示対象外の記事です（デモ）');
+			return;
+		}
 		state.selectedArticleId = id;
+		ensureArticleReactions(a);
 
 		$('#articleTitle').textContent = a.title;
 		const author = a.author ? `${a.author.dept} ${a.author.name}` : '—';
 		const dummyLabel = a.dummy ? ' ・ [DUMMY]' : '';
-		$('#articleMeta').textContent = `${formatDate(a.date)} ・ ${a.type.toUpperCase()} ・ 投稿: ${author} ・ 反応 ${a.reactions.like + a.reactions.thanks + a.reactions.comment}${dummyLabel}`;
+		const targetDepts = safeArray(a.targeting?.depts).filter(Boolean);
+		const targetTxt = targetDepts.length ? ` ・ 対象: ${targetDepts.join(' / ')}` : '';
+		const reactTotal = a.reactions.like + a.reactions.thanks + a.reactions.comment + a.reactions.heat;
+		$('#articleMeta').textContent = `${formatDate(a.date)} ・ ${a.type.toUpperCase()} ・ 投稿: ${author} ・ 反応 ${reactTotal}${dummyLabel}${targetTxt}`;
 		$('#articleTags').innerHTML = a.tags.map((t) => `<span class="tag">${t}</span>`).join('');
 		$('#articleBody').innerHTML = a.body;
 
@@ -982,14 +3229,16 @@
 		$('#detailViews').textContent = `${a.views}%`;
 		$('#detailCoverage').textContent = `${a.coverage}%`;
 		const tempEl = $('#detailTemp');
-		tempEl.textContent = `${temp}%`;
-		tempEl.className = 'pill heat';
+		tempEl.textContent = `温度 ${temp}%`;
+		tempEl.className = `pill ${temp >= 70 ? 'heat' : temp >= 40 ? 'warm' : 'cool'}`;
 		tempEl.style.setProperty('--p', String(temp));
 
 		// reset reactions UI
 		$('#likeCount').textContent = String(a.reactions.like);
 		$('#likeBtn').setAttribute('aria-pressed', 'false');
 		$('#likeBtn').classList.remove('popped');
+		const heatCountEl = document.getElementById('heatCount');
+		if (heatCountEl) heatCountEl.textContent = String(a.reactions.heat);
 
 		// seed comments
 		const list = $('#commentList');
@@ -1138,7 +3387,7 @@
 		const root = $('#calendar');
 		const now = new Date('2026-01-08T12:00:00');
 
-		const events = calendarEvents;
+		const events = getAllCalendarEvents();
 
 		const y = now.getFullYear();
 		const m = now.getMonth();
@@ -1155,7 +3404,7 @@
 			root.innerHTML = `
 				<div class="cal-head">${y}年${m + 1}月${now.getDate()}日（日次）</div>
 				<div class="cal-list">
-					${dayEvents.length ? dayEvents.map((e) => `<div class="cal-item" ${e.dummy ? 'data-dummy="true"' : ''}><span class="cal-tag">${e.tag}</span>${e.title}</div>`).join('') : '<div class="muted">予定はありません</div>'}
+					${dayEvents.length ? dayEvents.map((e) => `<div class="cal-item" ${e.dummy ? 'data-dummy="true"' : ''}><span class="cal-tag">${escapeHtml(e.tag || '')}</span>${escapeHtml(e.title || '')}</div>`).join('') : '<div class="muted">予定はありません</div>'}
 				</div>
 			`;
 			return;
@@ -1180,7 +3429,7 @@
 							(d) => `
 								<div class="cal-col">
 									<div class="cal-col-head">${d.label}</div>
-									${d.es.length ? d.es.map((e) => `<div class="cal-item" ${e.dummy ? 'data-dummy="true"' : ''}><span class="cal-tag">${e.tag}</span>${e.title}</div>`).join('') : '<div class="muted small">—</div>'}
+									${d.es.length ? d.es.map((e) => `<div class="cal-item" ${e.dummy ? 'data-dummy="true"' : ''}><span class="cal-tag">${escapeHtml(e.tag || '')}</span>${escapeHtml(e.title || '')}</div>`).join('') : '<div class="muted small">—</div>'}
 								</div>
 							`
 						)
@@ -1217,7 +3466,7 @@
 								<div class="cal-events">
 									${c.es
 										.slice(0, 2)
-										.map((e) => `<div class="cal-dot" ${e.dummy ? 'data-dummy="true"' : ''}><span class="cal-tag">${e.tag}</span>${e.title}</div>`)
+										.map((e) => `<div class="cal-dot" ${e.dummy ? 'data-dummy="true"' : ''}><span class="cal-tag">${escapeHtml(e.tag || '')}</span>${escapeHtml(e.title || '')}</div>`)
 										.join('')}
 									${c.es.length > 2 ? `<div class="muted small">+${c.es.length - 2}件</div>` : ''}
 								</div>
@@ -1232,8 +3481,9 @@
 	function renderStats() {
 		const r = state.reactionsToday;
 		$('#statReactions').textContent = `${r.like + r.thanks + r.comment}`;
-		const orgTemp = Math.round(articles.reduce((sum, a) => sum + computeTemp(a), 0) / articles.length);
-		const coverage = Math.round(articles.reduce((sum, a) => sum + a.coverage, 0) / articles.length);
+		const list = visibleArticles();
+		const orgTemp = Math.round(list.reduce((sum, a) => sum + computeTemp(a), 0) / Math.max(1, list.length));
+		const coverage = Math.round(list.reduce((sum, a) => sum + a.coverage, 0) / Math.max(1, list.length));
 		$('#statOrgTemp').textContent = `${orgTemp}`;
 		$('#statCoverage').textContent = `${coverage}`;
 
@@ -1272,8 +3522,9 @@
 		const bars = document.getElementById('fallbackBars');
 		if (!fallback || !bars) return;
 
-		const labels = articles.map((a) => (a.title.length > 12 ? a.title.slice(0, 12) + '…' : a.title));
-		const data = articles.map((a) => computeTemp(a));
+		const list = visibleArticles();
+		const labels = list.map((a) => (a.title.length > 12 ? a.title.slice(0, 12) + '…' : a.title));
+		const data = list.map((a) => computeTemp(a));
 
 		if (!window.Chart) {
 			fallback.hidden = false;
@@ -1352,6 +3603,23 @@
 			const t = e.target;
 			if (!(t instanceof HTMLElement)) return;
 
+			if (t.closest('#signOutBtn')) {
+				e.preventDefault();
+				signOut();
+				return;
+			}
+
+			if (t.closest('#myGoAdminBtn')) {
+				e.preventDefault();
+				setRoute('admin');
+				return;
+			}
+			if (t.closest('#myGoAnalyticsBtn')) {
+				e.preventDefault();
+				setRoute('admin-analytics');
+				return;
+			}
+
 			const serenBtn = t.closest('[data-seren-burn]');
 			if (serenBtn instanceof HTMLButtonElement) {
 				e.preventDefault();
@@ -1360,10 +3628,11 @@
 				serenBtn.classList.add('burned');
 				const empId = serenBtn.getAttribute('data-seren-emp') || '';
 				const text = serenBtn.getAttribute('data-seren-text') || '';
+				const kind = serenBtn.getAttribute('data-seren-kind') || '';
 				const card = serenBtn.closest('[data-seren-card]');
 				if (card) card.classList.add('burn');
 
-				upsertMatchHistory({ employeeId: empId, text, at: Date.now() });
+				upsertMatchHistory({ employeeId: empId, text, kind, at: Date.now() });
 				bumpHeatBonus(5);
 				toast('燃えた！ 温度が上昇しました（+5% / デモ）');
 				renderMatchHistory();
@@ -1477,6 +3746,7 @@
 		$('#likeBtn').addEventListener('click', () => {
 			const a = articles.find((x) => x.id === state.selectedArticleId);
 			if (!a) return;
+			ensureArticleReactions(a);
 			const pressed = $('#likeBtn').getAttribute('aria-pressed') === 'true';
 			$('#likeBtn').setAttribute('aria-pressed', pressed ? 'false' : 'true');
 			if (!pressed) {
@@ -1488,13 +3758,59 @@
 				renderStats();
 				renderPopular();
 				renderMetricsTable();
+				renderArticles();
+				openArticle(state.selectedArticleId || articles[0].id);
 			}
 		});
+
+		function spawnHeatSparks() {
+			const box = document.getElementById('heatSparks');
+			if (!(box instanceof HTMLElement)) return;
+			box.innerHTML = '';
+			const n = 9;
+			for (let i = 0; i < n; i++) {
+				const s = document.createElement('span');
+				s.className = 'heat-spark';
+				s.style.left = `${Math.round(8 + Math.random() * 44)}px`;
+				s.style.bottom = `${Math.round(6 + Math.random() * 10)}px`;
+				s.style.animationDelay = `${(Math.random() * 80).toFixed(0)}ms`;
+				s.style.setProperty('--dx', `${Math.round((Math.random() * 2 - 1) * 22)}px`);
+				s.style.setProperty('--dur', `${Math.round(520 + Math.random() * 320)}ms`);
+				box.appendChild(s);
+				window.setTimeout(() => s.remove(), 900);
+			}
+		}
+
+		const heatBtn = document.getElementById('heatBtn');
+		if (heatBtn) {
+			heatBtn.addEventListener('click', () => {
+				const a = articles.find((x) => x.id === state.selectedArticleId);
+				if (!a) return;
+				ensureArticleReactions(a);
+				a.reactions.heat += 1;
+				const heatCountEl = document.getElementById('heatCount');
+				if (heatCountEl) heatCountEl.textContent = String(a.reactions.heat);
+				spawnHeatSparks();
+				const temp = computeTemp(a);
+				const tempEl = document.getElementById('detailTemp');
+				if (tempEl) {
+					tempEl.textContent = `温度 ${temp}%`;
+					tempEl.className = `pill ${temp >= 70 ? 'heat' : temp >= 40 ? 'warm' : 'cool'}`;
+					tempEl.style.setProperty('--p', String(temp));
+				}
+				renderStats();
+				renderPopular();
+				renderMetricsTable();
+				renderArticles();
+				toast('加熱しました（デモ）');
+			});
+		}
 
 		$('#thanksForm').addEventListener('submit', (e) => {
 			e.preventDefault();
 			const a = articles.find((x) => x.id === state.selectedArticleId);
 			if (!a) return;
+			ensureArticleReactions(a);
 			const msg = ($('#thanksInput').value || '').trim();
 			if (!msg) {
 				toast('一言入力してください');
@@ -1506,6 +3822,8 @@
 			renderStats();
 			renderPopular();
 			renderMetricsTable();
+			renderArticles();
+			openArticle(state.selectedArticleId || articles[0].id);
 		});
 	}
 
@@ -1582,7 +3900,13 @@
 			$('#commentInput').value = '';
 			box.hidden = true;
 			addCommentBubble({ dept, name, text }, { animate: true });
-			toast('コメントを投稿しました');
+			let msg = 'コメントを投稿しました';
+			const hasMention = /@[\w\-.]+/.test(text);
+			if (hasMention) {
+				const p = loadMyProfile();
+				if (p.slack?.connected && p.slack?.handle) msg += `（Slack通知: @${p.slack.handle} / デモ）`;
+			}
+			toast(msg);
 			renderStats();
 			renderPopular();
 			renderMetricsTable();
@@ -1597,6 +3921,286 @@
 			$('#empLimit').addEventListener(evt, renderEmployees);
 			$('#empDept').addEventListener(evt, renderEmployees);
 			$('#empFavOnly')?.addEventListener(evt, renderEmployees);
+		});
+	}
+
+	function normalizeSlackHandle(v) {
+		return String(v || '')
+			.replace(/^@+/, '')
+			.replace(/\s+/g, '')
+			.trim()
+			.slice(0, 40);
+	}
+
+	function defaultMyProfile() {
+		return {
+			slack: { connected: false, handle: '' },
+			dept: '',
+			projectsRaw: '',
+			projects: [],
+			joinMonth: '',
+			tagIds: [],
+			intro: '',
+		};
+	}
+
+	function loadMyProfile() {
+		const raw = window.localStorage.getItem(STORAGE_KEYS.myProfile);
+		const saved = safeJsonParse(raw || 'null', null);
+		const base = defaultMyProfile();
+		if (!saved || typeof saved !== 'object') return base;
+		const slackObj = saved.slack && typeof saved.slack === 'object' ? saved.slack : {};
+		const slack = {
+			connected: Boolean(slackObj.connected),
+			handle: normalizeSlackHandle(slackObj.handle || saved.slackHandle || ''),
+		};
+		const dept = String(saved.dept || '').trim();
+		const projectsRaw = String(saved.projectsRaw || saved.project || '').trim();
+		const projects = Array.isArray(saved.projects) && saved.projects.length ? saved.projects : normalizeProjects(projectsRaw);
+		const joinMonth = String(saved.joinMonth || '').trim();
+		const tagIds = safeArray(saved.tagIds).filter(Boolean);
+		const intro = String(saved.intro || saved.smallTalk || '').trim();
+		return {
+			...base,
+			slack,
+			dept,
+			projectsRaw,
+			projects: safeArray(projects).map((s) => String(s || '').trim()).filter(Boolean),
+			joinMonth,
+			tagIds,
+			intro,
+		};
+	}
+
+	function saveMyProfile(p) {
+		window.localStorage.setItem(STORAGE_KEYS.myProfile, JSON.stringify(p));
+	}
+
+	function computeMyProfileCoverage(p) {
+		const total = 6;
+		let filled = 0;
+		if (String(p.dept || '').trim()) filled += 1;
+		if (String(p.projectsRaw || '').trim()) filled += 1;
+		if (String(p.joinMonth || '').trim()) filled += 1;
+		if (String(p.intro || '').trim()) filled += 1;
+		if (safeArray(p.tagIds).length > 0) filled += 1;
+		if (p.slack && p.slack.connected && String(p.slack.handle || '').trim()) filled += 1;
+		return Math.round((filled / total) * 100);
+	}
+
+	function applyMyProfileToEmployee(p) {
+		const me = employees[0];
+		if (!me) return;
+		if (p.dept) me.dept = p.dept;
+		me.profile = { ...(me.profile || {}), ...p, projects: safeArray(p.projects) };
+		const labels = safeArray(p.tagIds)
+			.map((id) => tagLabelById(id) || id)
+			.filter(Boolean);
+		if (labels.length) me.skills = labels.slice(0, 8);
+	}
+
+	function renderMyProfileCoverage(p) {
+		const valEl = document.getElementById('myProfileCoverage');
+		const barEl = document.getElementById('myProfileCoverageBar');
+		const wrap = barEl?.closest('[role="progressbar"]');
+		const pct = clamp(Number(computeMyProfileCoverage(p)), 0, 100);
+		if (valEl) valEl.textContent = String(pct);
+		if (barEl) barEl.style.setProperty('--p', String(pct));
+		if (wrap) wrap.setAttribute('aria-valuenow', String(pct));
+	}
+
+	function myPageDOM() {
+		return {
+			form: document.getElementById('myProfileForm'),
+			slackHandle: document.getElementById('mySlackHandle'),
+			slackBtn: document.getElementById('mySlackConnectBtn'),
+			slackStatus: document.getElementById('mySlackStatus'),
+			dept: document.getElementById('myDeptInput'),
+			projects: document.getElementById('myProjectsInput'),
+			joinMonth: document.getElementById('myJoinMonthInput'),
+			tagSearch: document.getElementById('myTagSearch'),
+			newTag: document.getElementById('myNewTag'),
+			addTagBtn: document.getElementById('myAddTagBtn'),
+			selectedTags: document.getElementById('mySelectedTags'),
+			tagList: document.getElementById('myTagList'),
+			intro: document.getElementById('myIntroInput'),
+		};
+	}
+
+	function renderMySlackStatus(p) {
+		const dom = myPageDOM();
+		if (!dom.slackStatus || !dom.slackBtn) return;
+		const handle = normalizeSlackHandle(p.slack?.handle);
+		if (p.slack?.connected && handle) {
+			dom.slackStatus.textContent = `連携中：@${handle}`;
+			dom.slackBtn.textContent = '連携を解除する';
+			return;
+		}
+		dom.slackStatus.textContent = '未連携';
+		dom.slackBtn.textContent = 'Slackと連携する';
+	}
+
+	function renderMyTagList(p) {
+		const dom = myPageDOM();
+		if (!dom.tagList) return;
+		const q = String(dom.tagSearch?.value || '').trim().toLowerCase();
+		const lib = getAdminTagLibrary();
+		const items = lib
+			.filter((t) => !q || t.label.toLowerCase().includes(q))
+			.slice(0, 120);
+		const selected = new Set(safeArray(p.tagIds));
+		dom.tagList.innerHTML = items
+			.map((t) => {
+				const on = selected.has(t.id);
+				return `<label class="check"><input type="checkbox" data-my-tag-pick="${escapeHtml(t.id)}" ${on ? 'checked' : ''} /> ${escapeHtml(t.label)}</label>`;
+			})
+			.join('');
+	}
+
+	function renderMySelectedTags(p) {
+		const dom = myPageDOM();
+		if (!dom.selectedTags) return;
+		const ids = safeArray(p.tagIds);
+		if (!ids.length) {
+			dom.selectedTags.innerHTML = '<div class="muted small">（未選択）</div>';
+			return;
+		}
+		dom.selectedTags.innerHTML = ids
+			.map((id) => {
+				const label = tagLabelById(id) || id;
+				return `<button class="chip" type="button" data-my-tag-remove="${escapeHtml(id)}" aria-label="タグ解除">#${escapeHtml(label)}</button>`;
+			})
+			.join('');
+	}
+
+	function setupMyProfileForm() {
+		const dom = myPageDOM();
+		if (!(dom.form instanceof HTMLFormElement)) return;
+
+		let profile = loadMyProfile();
+		applyMyProfileToEmployee(profile);
+		renderMyProfileCoverage(profile);
+		renderMySlackStatus(profile);
+		renderMySelectedTags(profile);
+		renderMyTagList(profile);
+
+		// 初期値（空のときだけ）
+		if (dom.slackHandle instanceof HTMLInputElement && !dom.slackHandle.value) dom.slackHandle.value = normalizeSlackHandle(profile.slack?.handle);
+		if (dom.dept instanceof HTMLSelectElement && !dom.dept.value) dom.dept.value = profile.dept || '';
+		if (dom.projects instanceof HTMLInputElement && !dom.projects.value) dom.projects.value = profile.projectsRaw || '';
+		if (dom.joinMonth instanceof HTMLInputElement && !dom.joinMonth.value) dom.joinMonth.value = profile.joinMonth || '';
+		if (dom.intro instanceof HTMLTextAreaElement && !dom.intro.value) dom.intro.value = profile.intro || '';
+
+		const readFromInputs = () => {
+			const next = { ...profile };
+			if (dom.slackHandle instanceof HTMLInputElement) next.slack = { ...(next.slack || {}), handle: normalizeSlackHandle(dom.slackHandle.value) };
+			if (dom.dept instanceof HTMLSelectElement) next.dept = String(dom.dept.value || '').trim();
+			if (dom.projects instanceof HTMLInputElement) next.projectsRaw = String(dom.projects.value || '').trim();
+			next.projects = normalizeProjects(next.projectsRaw);
+			if (dom.joinMonth instanceof HTMLInputElement) next.joinMonth = String(dom.joinMonth.value || '').trim();
+			if (dom.intro instanceof HTMLTextAreaElement) next.intro = String(dom.intro.value || '').trim();
+			next.tagIds = safeArray(next.tagIds).filter(Boolean);
+			return next;
+		};
+
+		const syncPreview = () => {
+			profile = readFromInputs();
+			applyMyProfileToEmployee(profile);
+			renderMyProfileCoverage(profile);
+			renderMySlackStatus(profile);
+			renderMySelectedTags(profile);
+			renderMyTagList(profile);
+			renderMyPage();
+		};
+
+		['input', 'change'].forEach((evt) => {
+			dom.form.addEventListener(evt, (e) => {
+				const t = e.target;
+				if (!(t instanceof HTMLElement)) return;
+				if (t.matches('#myTagSearch')) {
+					renderMyTagList(profile);
+					return;
+				}
+				if (t.matches('#myDeptInput, #myProjectsInput, #myJoinMonthInput, #myIntroInput, #mySlackHandle')) {
+					profile = readFromInputs();
+					renderMyProfileCoverage(profile);
+					return;
+				}
+			});
+		});
+
+		dom.form.addEventListener('click', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLElement)) return;
+
+			const removeId = t.closest('[data-my-tag-remove]')?.getAttribute('data-my-tag-remove');
+			if (removeId) {
+				profile.tagIds = safeArray(profile.tagIds).filter((x) => x !== removeId);
+				saveMyProfile(profile);
+				syncPreview();
+				toast('タグを更新しました');
+				return;
+			}
+
+			if (t.id === 'myAddTagBtn') {
+				const label = String(dom.newTag?.value || '').trim();
+				if (!label) return;
+				const id = tagIdFromLabel(label);
+				const lib = getAdminTagLibrary();
+				if (!lib.some((x) => x.id === id)) {
+					const custom = loadAdminCustomTags();
+					custom.push({ id, label });
+					saveAdminCustomTags(custom);
+					getAdminTagLibrary();
+				}
+				profile.tagIds = Array.from(new Set([...(safeArray(profile.tagIds) || []), id]));
+				if (dom.newTag instanceof HTMLInputElement) dom.newTag.value = '';
+				saveMyProfile(profile);
+				syncPreview();
+				toast('タグを追加しました');
+				return;
+			}
+
+			if (t.id === 'mySlackConnectBtn') {
+				profile = readFromInputs();
+				const handle = normalizeSlackHandle(profile.slack?.handle);
+				if (!handle) {
+					toast('Slackユーザー名を入力してください');
+					return;
+				}
+				profile.slack.connected = !profile.slack.connected;
+				saveMyProfile(profile);
+				syncPreview();
+				toast(profile.slack.connected ? `Slack連携しました（@${handle} / デモ）` : 'Slack連携を解除しました（デモ）');
+				return;
+			}
+		});
+
+		dom.form.addEventListener('change', (e) => {
+			const t = e.target;
+			if (!(t instanceof HTMLInputElement)) return;
+			const pick = t.getAttribute('data-my-tag-pick');
+			if (!pick) return;
+			const set = new Set(safeArray(profile.tagIds));
+			if (t.checked) set.add(pick);
+			else set.delete(pick);
+			profile.tagIds = Array.from(set);
+			saveMyProfile(profile);
+			syncPreview();
+		});
+
+		dom.form.addEventListener('submit', (e) => {
+			e.preventDefault();
+			profile = readFromInputs();
+			saveMyProfile(profile);
+			applyMyProfileToEmployee(profile);
+			toast('保存しました');
+			renderMyPage();
+			renderEmployees();
+			renderArticles();
+			renderPopular();
+			renderStats();
+			renderMetricsTable();
 		});
 	}
 
@@ -1636,6 +4240,17 @@
 	}
 
 	function init() {
+		state.auth = loadAuth();
+		applyAuthUI();
+		if (!state.auth.isLoggedIn) {
+			setRoute('login');
+		}
+
+		// 管理者投稿（localStorage）を先に読み込み、記事一覧に反映
+		loadAdminArticles();
+		ensureAdminDraftLoaded();
+		getAdminTagLibrary();
+
 		loadFavoriteEmployees();
 		loadHeatBonus();
 		loadMatchHistory();
@@ -1657,6 +4272,8 @@
 		setupEmployeeFilters();
 		setupCalendarControls();
 		setupMyProfileForm();
+		setupAdminEditor();
+		setupAdminExtras();
 
 		// 初期表示記事（温度スコアのデモを伝えるため）
 		state.selectedArticleId = articles[0].id;
@@ -1678,20 +4295,23 @@
 
 		const me = employees[0];
 		nameEl.textContent = me ? me.name : '—';
+
+		const p = loadMyProfile();
+		applyMyProfileToEmployee(p);
+		renderMyProfileCoverage(p);
+		renderMySlackStatus(p);
+		renderMySelectedTags(p);
+		renderMyTagList(p);
+
 		if (deptEl) deptEl.textContent = me ? me.dept : '—';
 		if (tagsEl) tagsEl.textContent = me ? me.skills.slice(0, 3).join(' / ') : '—';
 
-		const saved = safeJsonParse(window.localStorage.getItem(STORAGE_KEYS.myProfile) || 'null', null);
-		if (saved && me) me.profile = { ...(me.profile || {}), ...saved };
-		const p = (me && me.profile) || saved || {};
-		const hobbiesEl = document.getElementById('myHobbies');
-		const hometownEl = document.getElementById('myHometown');
-		const localEl = document.getElementById('myLocalTalk');
-		const smallEl = document.getElementById('mySmallTalk');
-		if (hobbiesEl && !hobbiesEl.value) hobbiesEl.value = Array.isArray(p.hobbies) ? p.hobbies.join(', ') : '';
-		if (hometownEl && !hometownEl.value) hometownEl.value = p.hometown || '';
-		if (localEl && !localEl.value) localEl.value = p.localTalk || '';
-		if (smallEl && !smallEl.value) smallEl.value = p.smallTalk || '';
+		const dom = myPageDOM();
+		if (dom.slackHandle instanceof HTMLInputElement && !dom.slackHandle.value) dom.slackHandle.value = normalizeSlackHandle(p.slack?.handle);
+		if (dom.dept instanceof HTMLSelectElement && !dom.dept.value) dom.dept.value = p.dept || '';
+		if (dom.projects instanceof HTMLInputElement && !dom.projects.value) dom.projects.value = p.projectsRaw || '';
+		if (dom.joinMonth instanceof HTMLInputElement && !dom.joinMonth.value) dom.joinMonth.value = p.joinMonth || '';
+		if (dom.intro instanceof HTMLTextAreaElement && !dom.intro.value) dom.intro.value = p.intro || '';
 
 		if (me && engagementEl) engagementEl.textContent = String(computePersonTemp(me));
 		if (weeklyEl) weeklyEl.textContent = String(12 + (me ? (me.coverage % 8) : 0));
@@ -1706,6 +4326,8 @@
 				.map((x) => `<li class="alert-item"><span class="alert-title">${escapeHtml(x.who)}</span><span class="alert-meta">${escapeHtml(x.what)}</span></li>`)
 				.join('');
 		}
+
+		applyAuthUI();
 	}
 
 	init();
